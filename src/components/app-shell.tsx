@@ -1,0 +1,625 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CalendarRange, Gauge, Monitor, Power, Search, Upload } from "lucide-react";
+import { Toaster, toast } from "sonner";
+import { DesktopPreview } from "./desktop-preview";
+import { DesktopBridge, applyDesktopWallpaper, stopDesktopWallpaper } from "./desktop-bridge";
+import { EngineDialog } from "./engine-dialog";
+import { FullscreenStage } from "./fullscreen-stage";
+import { ImportDialog, ingestDroppedFiles } from "./import-dialog";
+import { KillScreen } from "./kill-screen";
+import { LibraryGrid } from "./library-grid";
+import { ScheduleDialog } from "./schedule-dialog";
+import { SlotBoard, SlotQueue } from "./slot-board";
+import { CollectionChips, Sidebar } from "./sidebar";
+import { Transport } from "./transport";
+import type { LayerEngine } from "./wallpaper-layer";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CATALOG } from "@/lib/catalog";
+import { getAllImports } from "@/lib/idb";
+import { recordToWallpaper } from "@/lib/import-files";
+import {
+  allWallpapers,
+  playbackClips,
+  useWallpaperStore,
+  wallpaperById,
+} from "@/lib/store";
+import { msUntilSlotEnd, slotFromDate, uniqueWallpaperIds } from "@/lib/slots";
+import { clipPlayMs, clipUsesMediaClock } from "@/lib/trim";
+import { TIME_SLOTS } from "@/lib/types";
+import { composeClock, periodFromDate } from "@/lib/time";
+import { frameFromState } from "@/lib/desktop-sync";
+import { isTauri } from "@/lib/native";
+import { useDesktopStore } from "@/lib/desktop-store";
+
+function isTypingTarget(el: EventTarget | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (el.isContentEditable) return true;
+  return Boolean(el.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+export function AppShell() {
+  const [now, setNow] = useState<Date | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [engineOpen, setEngineOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [tabHidden, setTabHidden] = useState(false);
+  const [insertSlotId, setInsertSlotId] = useState<string | null>(null);
+  const prevKey = useRef<string | null>(null);
+  const lastEsc = useRef(0);
+
+  const mode = useWallpaperStore((s) => s.mode);
+  const playing = useWallpaperStore((s) => s.playing);
+  const intervalMs = useWallpaperStore((s) => s.intervalMs);
+  const lastChangeAt = useWallpaperStore((s) => s.lastChangeAt);
+  const clockFollowsReal = useWallpaperStore((s) => s.clockFollowsReal);
+  const virtualMinutes = useWallpaperStore((s) => s.virtualMinutes);
+  const activeId = useWallpaperStore((s) => s.activeId);
+  const activeClipId = useWallpaperStore((s) => s.activeClipId);
+  const fit = useWallpaperStore((s) => s.fit);
+  const muted = useWallpaperStore((s) => s.muted);
+  const volume = useWallpaperStore((s) => s.volume);
+  const audioReactive = useWallpaperStore((s) => s.audioReactive);
+  const displaySize = useWallpaperStore((s) => s.displaySize);
+  const quality = useWallpaperStore((s) => s.quality);
+  const fpsCap = useWallpaperStore((s) => s.fpsCap);
+  const pauseOnHidden = useWallpaperStore((s) => s.pauseOnHidden);
+  const gpuSaver = useWallpaperStore((s) => s.gpuSaver);
+  const autoAdjust = useWallpaperStore((s) => s.autoAdjust);
+  const imports = useWallpaperStore((s) => s.imports);
+  const collection = useWallpaperStore((s) => s.collection);
+  const kindFilter = useWallpaperStore((s) => s.kindFilter);
+  const query = useWallpaperStore((s) => s.query);
+  const apply = useWallpaperStore((s) => s.apply);
+  const applyClip = useWallpaperStore((s) => s.applyClip);
+  const next = useWallpaperStore((s) => s.next);
+  const prev = useWallpaperStore((s) => s.prev);
+  const setPlaying = useWallpaperStore((s) => s.setPlaying);
+  const setQuery = useWallpaperStore((s) => s.setQuery);
+  const addImports = useWallpaperStore((s) => s.addImports);
+  const setCollection = useWallpaperStore((s) => s.setCollection);
+  const hydrateImports = useWallpaperStore((s) => s.hydrateImports);
+  const assignToSlot = useWallpaperStore((s) => s.assignToSlot);
+  const assignManyToSlot = useWallpaperStore((s) => s.assignManyToSlot);
+  const updateClip = useWallpaperStore((s) => s.updateClip);
+  const setMode = useWallpaperStore((s) => s.setMode);
+  const slotClips = useWallpaperStore((s) => s.slotClips);
+  const autoPlay = useWallpaperStore((s) => s.autoPlay);
+  const killed = useWallpaperStore((s) => s.killed);
+  const kill = useWallpaperStore((s) => s.kill);
+  const revive = useWallpaperStore((s) => s.revive);
+  const shuffle = useWallpaperStore((s) => s.shuffle);
+  const shuffleSeed = useWallpaperStore((s) => s.shuffleSeed);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await getAllImports();
+        if (cancelled) return;
+        hydrateImports(
+          rows.map((r) => recordToWallpaper(r.id, r.name, r.mime, URL.createObjectURL(r.blob))),
+        );
+      } catch {
+        /* private mode / blocked idb */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrateImports]);
+
+  useEffect(() => {
+    void useWallpaperStore.persist.rehydrate();
+    useWallpaperStore.setState({ lastChangeAt: Date.now() });
+  }, []);
+
+  useEffect(() => {
+    setNow(new Date());
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setTabHidden(document.hidden);
+    const onBlur = () => {
+      if (useWallpaperStore.getState().gpuSaver) setTabHidden(true);
+    };
+    const onFocus = () => setTabHidden(document.hidden);
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  const clock = composeClock(
+    Boolean(now) && clockFollowsReal,
+    now ? virtualMinutes : 8 * 60,
+    now ?? new Date(Date.UTC(2026, 5, 21, 8, 0, 0)),
+  );
+  const period = periodFromDate(clock);
+  const slot = slotFromDate(clock);
+  const enginePaused = killed || (tabHidden && (pauseOnHidden || gpuSaver));
+  const queue = playbackClips(
+    { imports, shuffle, shuffleSeed, mode, slotClips },
+    period,
+    slot.id,
+  );
+  const activeResolved =
+    queue.find((r) => r.clip.clipId === activeClipId) ??
+    queue.find((r) => r.wallpaper.id === activeId) ??
+    null;
+  const activeClip = activeResolved?.clip;
+  const wallpaper = activeResolved?.wallpaper ?? wallpaperById(activeId, imports) ?? CATALOG[0]!;
+  const loopVideo = killed || !playing || mode === "hold" || queue.length <= 1;
+  const slotRemaining = now ? msUntilSlotEnd(slot, clock) : 0;
+  const holdMs = activeClip
+    ? clipPlayMs(activeClip, wallpaper, intervalMs)
+    : intervalMs;
+  const remaining = now ? Math.max(0, holdMs - (Date.now() - lastChangeAt)) : holdMs;
+  const mediaClock = activeClip ? clipUsesMediaClock(activeClip, wallpaper) : false;
+  const nextResolved = (() => {
+    if (queue.length <= 1) return undefined;
+    const i = queue.findIndex((r) => r.clip.clipId === (activeClip?.clipId ?? ""));
+    return queue[(i + 1) % queue.length];
+  })();
+
+  const onMediaEnded = useCallback(() => {
+    const s = useWallpaperStore.getState();
+    if (s.killed || !s.playing || s.mode === "hold") return;
+    s.next(period, slot.id);
+  }, [period, slot.id]);
+
+  const onDuration = useCallback(
+    (seconds: number) => {
+      if (!activeClip) return;
+      if (activeClip.clipId === activeClip.wallpaperId) return;
+      if (activeClip.durationSec != null && Math.abs(activeClip.durationSec - seconds) < 0.05) return;
+      updateClip(slot.id, activeClip.clipId, { durationSec: seconds });
+    },
+    [activeClip, slot.id, updateClip],
+  );
+
+  const engine: LayerEngine = useMemo(
+    () => ({
+      muted: killed ? true : muted,
+      volume,
+      audioReactive: killed ? false : audioReactive,
+      paused: enginePaused,
+      fpsCap,
+      quality,
+      displaySize,
+      gpuSaver,
+      autoAdjust,
+      loopVideo,
+      clipId: activeClip?.clipId,
+      inSec: activeClip?.inSec ?? 0,
+      outSec: activeClip?.outSec ?? null,
+      onMediaEnded,
+      onDuration,
+      nextSrc: nextResolved?.wallpaper.src,
+      nextIsVideo:
+        nextResolved?.wallpaper.kind === "live" ||
+        Boolean(nextResolved?.wallpaper.mime?.startsWith("video/")),
+    }),
+    [
+      muted,
+      volume,
+      audioReactive,
+      enginePaused,
+      fpsCap,
+      quality,
+      displaySize,
+      gpuSaver,
+      autoAdjust,
+      loopVideo,
+      onMediaEnded,
+      onDuration,
+      killed,
+      activeClip?.clipId,
+      activeClip?.inSec,
+      activeClip?.outSec,
+      nextResolved?.wallpaper.src,
+    ],
+  );
+
+  const desktopFrame = useMemo(
+    () =>
+      frameFromState(
+        useWallpaperStore.getState(),
+        wallpaper,
+        activeClip ?? {
+          clipId: wallpaper.id,
+          wallpaperId: wallpaper.id,
+          inSec: 0,
+          outSec: null,
+          holdMs: null,
+        },
+        nextResolved?.wallpaper,
+        { ...engine, paused: killed },
+      ),
+    [wallpaper, activeClip, nextResolved, engine],
+  );
+
+  useEffect(() => {
+    if (killed || !playing || mode === "hold" || mediaClock) return;
+    const id = window.setInterval(() => {
+      const s = useWallpaperStore.getState();
+      if (s.killed || !s.playing || s.mode === "hold") return;
+      const q = playbackClips(s, period, slot.id);
+      const cur =
+        q.find((r) => r.clip.clipId === s.activeClipId) ??
+        q.find((r) => r.wallpaper.id === s.activeId);
+      if (!cur) return;
+      if (clipUsesMediaClock(cur.clip, cur.wallpaper)) return;
+      const hold = clipPlayMs(cur.clip, cur.wallpaper, s.intervalMs);
+      if (Date.now() - s.lastChangeAt >= hold) s.next(period, slot.id);
+    }, 400);
+    return () => window.clearInterval(id);
+  }, [playing, mode, intervalMs, period, slot.id, killed, mediaClock]);
+
+  useEffect(() => {
+    if (killed) return;
+    const key =
+      mode === "slots" ? `slots:${slot.id}` : mode === "daycycle" ? `day:${period}` : `other:${mode}`;
+    if (mode !== "daycycle" && mode !== "slots") {
+      prevKey.current = key;
+      return;
+    }
+    const first = prevKey.current === null;
+    if (prevKey.current === key) return;
+    prevKey.current = key;
+    const s = useWallpaperStore.getState();
+    const q = playbackClips(s, period, slot.id);
+    if (!q[0]) return;
+    if (!first || s.autoPlay) {
+      if (s.activeClipId !== q[0].clip.clipId) s.applyClip(q[0].clip);
+      if (s.autoPlay && s.mode !== "hold") s.setPlaying(true);
+    }
+  }, [period, mode, slot.id, killed, autoPlay]);
+
+  const stopApp = useCallback(() => {
+    setFullscreen(false);
+    setEngineOpen(false);
+    setScheduleOpen(false);
+    setImportOpen(false);
+    kill();
+    void stopDesktopWallpaper();
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
+    try {
+      window.close();
+    } catch {
+      /* browsers block close unless this window was script-opened */
+    }
+  }, [kill]);
+
+  const restartApp = useCallback(() => {
+    revive();
+    const s = useWallpaperStore.getState();
+    const q = playbackClips(s, period, slot.id);
+    if (q[0]) s.applyClip(q[0].clip);
+    if (isTauri()) void applyDesktopWallpaper();
+    toast("Solstice restarted");
+  }, [revive, period, slot.id]);
+
+  const onDesktopApply = useCallback(() => {
+    const attached = useDesktopStore.getState().attached;
+    if (attached) {
+      void stopDesktopWallpaper();
+      toast("Desktop wallpaper stopped");
+      return;
+    }
+    void (async () => {
+      const ok = await applyDesktopWallpaper();
+      if (!ok && !isTauri()) setFullscreen(true);
+    })();
+  }, []);
+
+  const dialogOpen = importOpen || engineOpen || scheduleOpen;
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (isTypingTarget(e.target)) return;
+      if (e.repeat) return;
+      const s = useWallpaperStore.getState();
+
+      if (s.killed) return;
+
+      const killKey = (e.key === "k" || e.key === "K") && !e.metaKey && !e.ctrlKey && !e.altKey;
+      if (killKey || (e.key === "Escape" && e.shiftKey)) {
+        e.preventDefault();
+        stopApp();
+        return;
+      }
+
+      if (dialogOpen) return;
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        setPlaying(!s.playing);
+      } else if (e.code === "ArrowRight") {
+        next(period, slot.id);
+      } else if (e.code === "ArrowLeft") {
+        prev(period, slot.id);
+      } else if (e.key === "f" || e.key === "F") {
+        setFullscreen((v) => !v);
+      } else if (e.key === "Escape") {
+        if (dialogOpen) return;
+        const t = Date.now();
+        if (t - lastEsc.current < 450) {
+          lastEsc.current = 0;
+          e.preventDefault();
+          stopApp();
+          return;
+        }
+        lastEsc.current = t;
+        if (fullscreen) setFullscreen(false);
+      }
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [next, prev, period, slot.id, setPlaying, stopApp, fullscreen, dialogOpen]);
+
+  const visible = useMemo(() => {
+    let items = allWallpapers(imports);
+    if (collection === "Imports") items = items.filter((w) => w.imported && !w.path);
+    else if (collection === "Folders") items = items.filter((w) => Boolean(w.path) || w.collection === "Folders");
+    else if (collection !== "all") items = items.filter((w) => w.collection === collection);
+    if (kindFilter !== "all") items = items.filter((w) => w.kind === kindFilter);
+    const q = query.trim().toLowerCase();
+    if (q) {
+      items = items.filter(
+        (w) => w.title.toLowerCase().includes(q) || w.collection.toLowerCase().includes(q),
+      );
+    }
+    return items;
+  }, [imports, collection, kindFilter, query]);
+
+  const assignedIds = useMemo(
+    () => new Set(insertSlotId ? uniqueWallpaperIds(slotClips[insertSlotId] ?? []) : []),
+    [insertSlotId, slotClips],
+  );
+
+  const onLibrarySelect = useCallback(
+    (id: string) => {
+      if (!insertSlotId) {
+        apply(id);
+        return;
+      }
+      const clip = assignToSlot(insertSlotId, id);
+      applyClip(clip);
+      setMode("slots");
+      const label = TIME_SLOTS.find((s) => s.id === insertSlotId)?.label ?? "slot";
+      const already = assignedIds.has(id);
+      toast(already ? `Queued another copy in ${label}` : `Added to ${label}`);
+    },
+    [apply, applyClip, assignToSlot, insertSlotId, setMode, assignedIds],
+  );
+
+  const onDrop = useCallback(
+    async (files: File[]) => {
+      setDragOver(false);
+      if (!files.length) return;
+      toast("Importing…");
+      try {
+        const added = await ingestDroppedFiles(files);
+        if (!added.length) {
+          toast("No photos, GIFs, or videos found.");
+          return;
+        }
+        addImports(added);
+        setCollection("Imports");
+        if (insertSlotId) {
+          const clips = assignManyToSlot(
+            insertSlotId,
+            added.map((w) => w.id),
+          );
+          setMode("slots");
+          if (clips[0]) applyClip(clips[0]);
+          const label = TIME_SLOTS.find((s) => s.id === insertSlotId)?.label ?? "slot";
+          toast(`Inserted ${added.length.toLocaleString()} into ${label}`);
+        } else {
+          toast(`Added ${added.length.toLocaleString()} to Imports.`);
+        }
+      } catch {
+        toast("Could not import those files.");
+      }
+    },
+    [addImports, applyClip, assignManyToSlot, insertSlotId, setCollection, setMode],
+  );
+
+  return (
+    <TooltipProvider delayDuration={250}>
+      <div
+        className="flex h-dvh min-h-0 flex-col overflow-hidden bg-bg text-fg"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          void onDrop(Array.from(e.dataTransfer.files));
+        }}
+      >
+        <header className="flex h-14 shrink-0 items-center gap-3 px-3 sm:px-4">
+          <div className="min-w-0">
+            <p className="font-display text-xl leading-none tracking-tight">Solstice</p>
+            <p className="hidden text-xs text-subtle sm:block">One wallpaper at a time</p>
+          </div>
+          <div className="relative ml-auto hidden min-w-0 max-w-xs flex-1 sm:block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search library"
+              className="pl-9"
+              aria-label="Search library"
+            />
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+            <Upload className="size-4" />
+            Import
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setScheduleOpen(true)} aria-label="Schedule">
+            <CalendarRange className="size-4" />
+            <span className="hidden sm:inline">Schedule</span>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setEngineOpen(true)} aria-label="Engine">
+            <Gauge className="size-4" />
+            <span className="hidden sm:inline">Engine</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="hidden sm:inline-flex"
+            onClick={onDesktopApply}
+            aria-label="Desktop wallpaper"
+          >
+            <Monitor className="size-4" />
+            <span className="hidden sm:inline">Desktop</span>
+          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={stopApp}
+                aria-label="Kill switch — K, Shift+Esc, or double Esc"
+              >
+                <Power className="size-4" />
+                <span className="hidden sm:inline">Kill</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Stop wallpaper — K, Shift+Esc, or Esc twice</TooltipContent>
+          </Tooltip>
+        </header>
+        {!isTauri() ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-surface-2 px-3 py-2 text-xs sm:px-4">
+            <span className="text-subtle">Windows PC files</span>
+            <a className="underline decoration-muted underline-offset-2 hover:text-fg" href="/windows/index.html" target="_blank" rel="noreferrer">
+              Download page
+            </a>
+            <a className="underline decoration-muted underline-offset-2 hover:text-fg" href="/windows/update-solstice-rust.ps1" download>
+              Rust updater
+            </a>
+            <a className="underline decoration-muted underline-offset-2 hover:text-fg" href="/solstice-windows-source.zip" download>
+              Source zip
+            </a>
+          </div>
+        ) : null}
+
+
+        <div className="flex min-h-0 flex-1">
+          <Sidebar
+            period={period}
+            slotId={slot.id}
+            insertSlotId={insertSlotId}
+            onOpenSchedule={() => setScheduleOpen(true)}
+            onSelectSlot={(id) => setInsertSlotId((cur) => (cur === id ? null : id))}
+          />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="h-36 w-full shrink-0 px-3 pt-1 sm:h-44 sm:px-4 lg:h-[22vh] lg:max-h-[200px] lg:min-h-[132px]">
+              <DesktopPreview wallpaper={wallpaper} fit={fit} engine={engine} clock={clock} />
+            </div>
+            <Transport
+              wallpaper={wallpaper}
+              period={period}
+              slotId={slot.id}
+              remaining={remaining}
+              slotRemaining={slotRemaining}
+              queueLength={queue.length}
+              onFullscreen={() => setFullscreen(true)}
+            />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2">
+              <div className="flex items-center justify-between px-3 pb-2 sm:px-4">
+                <p className="text-xs text-muted">
+                  <span className="tabular-nums text-fg">{visible.length.toLocaleString()}</span> in view
+                  <span className="hidden sm:inline">
+                    {" "}
+                    · {(CATALOG.length + imports.length).toLocaleString()} in library
+                  </span>
+                </p>
+                <div className="sm:hidden">
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search"
+                    className="h-9 w-36"
+                    aria-label="Search library"
+                  />
+                </div>
+              </div>
+              <CollectionChips />
+              <SlotBoard
+                activeSlotId={slot.id}
+                insertSlotId={insertSlotId}
+                onSelectSlot={(id) => setInsertSlotId((cur) => (cur === id ? null : id))}
+              />
+              {insertSlotId ? (
+                <SlotQueue slotId={insertSlotId} onClearSelect={() => setInsertSlotId(null)} />
+              ) : null}
+              <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3 sm:px-4">
+                <LibraryGrid
+                  items={visible}
+                  activeId={wallpaper.id}
+                  onSelect={onLibrarySelect}
+                  inserting={Boolean(insertSlotId)}
+                  assignedIds={assignedIds}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {dragOver ? (
+          <div className="pointer-events-none fixed inset-0 z-40 grid place-items-center bg-bg/70">
+            <div className="rounded-xl bg-surface px-8 py-6 text-center shadow-[var(--shadow-border)]">
+              <p className="font-display text-2xl">Drop to import</p>
+              <p className="mt-1 text-sm text-muted">
+                {insertSlotId
+                  ? `Drop onto the page to insert into ${TIME_SLOTS.find((s) => s.id === insertSlotId)?.label ?? "this slot"}`
+                  : "Photos, GIFs, and video — drop on a time slot to insert"}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {fullscreen ? (
+          <FullscreenStage
+            wallpaper={wallpaper}
+            fit={fit}
+            engine={engine}
+            onExit={() => setFullscreen(false)}
+            onKill={stopApp}
+          />
+        ) : null}
+
+        <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
+        <EngineDialog open={engineOpen} onOpenChange={setEngineOpen} onDesktopApply={onDesktopApply} />
+        <ScheduleDialog open={scheduleOpen} onOpenChange={setScheduleOpen} activeSlotId={slot.id} />
+        {killed ? <KillScreen onRestart={restartApp} /> : null}
+        <DesktopBridge
+          frame={desktopFrame}
+          onKill={stopApp}
+          onRevive={restartApp}
+          onNext={() => next(period, slot.id)}
+          onPrev={() => prev(period, slot.id)}
+        />
+        <Toaster theme="dark" position="bottom-right" richColors={false} />
+      </div>
+    </TooltipProvider>
+  );
+}

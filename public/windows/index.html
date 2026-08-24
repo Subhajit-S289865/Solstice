@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Solstice — Windows source</title>
+    <style>
+      body {
+        margin: 0;
+        font: 16px/1.45 system-ui, sans-serif;
+        background: #14110e;
+        color: #f4efe8;
+        padding: 32px 20px 64px;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+      }
+      a {
+        color: #e8c9a0;
+      }
+      .card {
+        background: #1e1a16;
+        border: 1px solid #3a332c;
+        border-radius: 8px;
+        padding: 16px 18px;
+        margin: 12px 0;
+      }
+      code,
+      pre {
+        font: 13px/1.4 ui-monospace, monospace;
+        background: #0e0c0a;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      pre {
+        padding: 12px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+      }
+      h1 {
+        font-weight: 600;
+        letter-spacing: -0.03em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Solstice for your Windows PC</h1>
+      <p>
+        Chat download of the big zip is blocked. Use these instead on
+        <code>C:\Users\SUBHAJIT\Music\Solstice</code>.
+      </p>
+
+      <div class="card">
+        <strong>Option A — patch the Rust host (fastest)</strong>
+        <p>You already have the project. Overwrite only the HWND / rusqlite files.</p>
+        <ol>
+          <li>
+            Download
+            <a href="/windows/update-solstice-rust.ps1" download>update-solstice-rust.ps1</a>
+          </li>
+          <li>Move it into your Solstice folder.</li>
+          <li>PowerShell:</li>
+        </ol>
+        <pre>cd C:\Users\SUBHAJIT\Music\Solstice
+powershell -ExecutionPolicy Bypass -File .\update-solstice-rust.ps1
+rmdir /s /q src-tauri\target
+npm run tauri:dev</pre>
+        <p>Or save these over <code>src-tauri\src\</code>:</p>
+        <ul>
+          <li><a href="/windows/wallpaper.rs" download>wallpaper.rs</a></li>
+          <li><a href="/windows/lib.rs" download>lib.rs</a></li>
+          <li><a href="/windows/library.rs" download>library.rs</a></li>
+          <li><a href="/windows/settings.rs" download>settings.rs</a></li>
+          <li><a href="/windows/main.rs" download>main.rs</a></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <strong>Option B — source zip (~2 MB, no demo videos)</strong>
+        <p>
+          <a href="/solstice-windows-source.zip" download>solstice-windows-source.zip</a>
+        </p>
+        <pre>cd C:\Users\SUBHAJIT\Music
+ren Solstice Solstice-old
+:: extract the zip here as Solstice\
+xcopy Solstice-old\public Solstice\public /E /Y
+xcopy Solstice-old\src-tauri\icons Solstice\src-tauri\icons /E /Y
+cd Solstice
+rmdir /s /q src-tauri\target
+npm install
+npm run tauri:dev</pre>
+      </div>
+    </main>
+  </body>
+</html>
