@@ -29,12 +29,10 @@ export const WallpaperThumb = memo(function WallpaperThumb({
       type="button"
       onClick={() => onSelect(wallpaper.id)}
       className={cn(
-        "group relative aspect-video w-full overflow-hidden rounded-sm text-left shadow-[var(--shadow-border)] transition-[box-shadow,transform] duration-[var(--motion-quick)] ease-[var(--ease-out)]",
-        assigned
-          ? "shadow-[0_0_0_2px_var(--color-accent)]"
-          : active
-            ? "shadow-[0_0_0_2px_var(--color-accent)]"
-            : "hover:shadow-[var(--shadow-border-hover)]",
+        "group relative aspect-video w-full overflow-hidden rounded-md text-left shadow-[var(--shadow-border)] transition-[box-shadow,transform] duration-[var(--motion-quick)] ease-[var(--ease-out)] focus-visible:ring-2 focus-visible:ring-ring/70",
+        assigned || active
+          ? "shadow-[0_0_0_2px_var(--color-cta)]"
+          : "hover:shadow-[var(--shadow-border-hover)]",
       )}
       aria-current={active ? "true" : undefined}
       aria-label={
@@ -63,24 +61,24 @@ export const WallpaperThumb = memo(function WallpaperThumb({
           ) : null}
         </div>
       )}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-bg/80 to-transparent px-1.5 pb-1 pt-5 opacity-0 transition-opacity duration-[var(--motion-quick)] group-hover:opacity-100 group-focus-visible:opacity-100">
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-bg/85 to-transparent px-1.5 pb-1.5 pt-6">
         <p className="truncate text-xs font-medium text-fg">{wallpaper.title}</p>
       </div>
       {wallpaper.kind !== "photo" ? (
         <span
           className={cn(
-            "absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-xs font-medium uppercase tracking-wider",
-            wallpaper.kind === "live" ? "bg-fg text-bg" : "bg-bg/70 text-fg",
+            "absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wider",
+            wallpaper.kind === "live" ? "bg-fg text-bg" : "bg-bg/75 text-fg",
           )}
         >
-          {wallpaper.kind === "live" ? "Live" : "GIF"}
+          {wallpaper.kind === "live" ? "Video" : "GIF"}
         </span>
       ) : null}
       {inserting ? (
         <span
           className={cn(
-            "absolute right-1 top-1 grid size-6 place-items-center rounded-full",
-            assigned ? "bg-fg text-bg" : "bg-bg/70 text-fg",
+            "absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-full",
+            assigned ? "bg-cta text-cta-fg" : "bg-bg/75 text-fg",
           )}
         >
           {assigned ? <Check className="size-3.5" /> : <Plus className="size-3.5" />}

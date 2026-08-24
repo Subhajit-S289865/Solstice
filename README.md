@@ -2,6 +2,8 @@
 
 Windows desktop wallpaper studio: photos, GIF, and local video — one at a time, by playlist or time slot. Native wallpaper uses Explorer **WorkerW** (Progman `0x052C` → `SetParent`), not a fake fullscreen window.
 
+The studio shows what is playing, which slot is active, quality/FPS, mute, and a **Set as desktop wallpaper** action. Stop (K) detaches immediately. Closing the window hides Solstice in the tray.
+
 ## Clone on Windows 10/11
 
 Git: [git-scm.com/download/win](https://git-scm.com/download/win)  
@@ -13,6 +15,15 @@ ren Solstice Solstice-old
 git clone https://github.com/Subhajit-S289865/Solstice.git Solstice
 cd Solstice
 rmdir /s /q src-tauri\target
+npm install
+npm run tauri:dev
+```
+
+Already cloned? Pull the latest (UI polish + Windows spawn/HWND/EBUSY fixes):
+
+```bat
+cd C:\Users\SUBHAJIT\Music\Solstice
+git pull
 npm install
 npm run tauri:dev
 ```

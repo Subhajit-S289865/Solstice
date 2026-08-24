@@ -69,7 +69,7 @@ export function Transport({
   const trimNote = activeClip ? clipBadge(activeClip, wallpaper) : "";
 
   return (
-    <div className="border-y border-border bg-surface px-3 py-2 sm:px-4">
+    <div className="border-y border-border bg-surface px-3 py-2.5 sm:px-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-fg">{wallpaper.title}</p>
@@ -88,23 +88,23 @@ export function Transport({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button variant="ghost" size="icon-sm" onClick={() => prev(period, slotId)} aria-label="Previous">
+          <Button variant="ghost" size="icon" onClick={() => prev(period, slotId)} aria-label="Previous">
             <SkipBack className="size-4" />
           </Button>
           <Button
-            variant="secondary"
-            size="icon-sm"
+            variant="cta"
+            size="icon"
             onClick={() => setPlaying(!playing)}
             aria-label={playing ? "Pause rotation" : "Play rotation"}
           >
-            {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+            {playing ? <Pause className="size-4" /> : <Play className="size-4 ml-px" />}
           </Button>
-          <Button variant="ghost" size="icon-sm" onClick={() => next(period, slotId)} aria-label="Next">
+          <Button variant="ghost" size="icon" onClick={() => next(period, slotId)} aria-label="Next">
             <SkipForward className="size-4" />
           </Button>
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="icon"
             onClick={() => setMuted(!muted)}
             aria-label={muted ? "Unmute" : "Mute"}
           >
@@ -125,7 +125,7 @@ export function Transport({
               aria-label="Wallpaper volume"
             />
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={onFullscreen} aria-label="Fill screen">
+          <Button variant="ghost" size="icon" onClick={onFullscreen} aria-label="Fill screen">
             <Maximize2 className="size-4" />
           </Button>
 
@@ -215,15 +215,16 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
     { id: "slots", label: "Schedule" },
   ];
   return (
-    <div className="inline-flex rounded-sm bg-surface-2 p-0.5 shadow-[var(--shadow-border)]">
+    <div className="inline-flex rounded-sm bg-surface-2 p-0.5 shadow-[var(--shadow-border)]" role="group" aria-label="Playback mode">
       {items.map((item) => (
         <button
           key={item.id}
           type="button"
           onClick={() => onChange(item.id)}
+          aria-pressed={mode === item.id}
           className={cn(
-            "h-8 rounded-xs px-2.5 text-xs font-medium transition-colors duration-[var(--motion-quick)]",
-            mode === item.id ? "bg-fg text-bg" : "text-muted hover:text-fg",
+            "h-10 rounded-xs px-2.5 text-xs font-medium transition-colors duration-[var(--motion-quick)]",
+            mode === item.id ? "bg-bg text-fg shadow-[var(--shadow-border)]" : "text-muted hover:text-fg",
           )}
         >
           {item.label}

@@ -17,7 +17,7 @@ export function DesktopPreview({
   clock: Date;
 }) {
   return (
-    <div className="h-full rounded-xl bg-surface-2 p-2">
+    <div className="h-full rounded-xl bg-surface p-1.5 shadow-[var(--shadow-border)]">
       <div className="grain-overlay relative h-full overflow-hidden rounded-lg bg-bg">
         <WallpaperLayer wallpaper={wallpaper} fit={fit} engine={engine} />
 
@@ -28,7 +28,7 @@ export function DesktopPreview({
 
         <div className="pointer-events-none absolute bottom-[calc(var(--desktop-taskbar)+10px)] left-3 max-w-[70%] rounded-sm bg-bg/45 px-2.5 py-1.5">
           <p className="truncate text-xs font-medium text-fg">{wallpaper.title}</p>
-          <p className="text-[11px] text-muted">
+          <p className="text-2xs text-muted">
             {KIND_LABEL[wallpaper.kind]} · {wallpaper.collection}
           </p>
         </div>
@@ -43,7 +43,7 @@ export function DesktopPreview({
                 <span className="size-1.5 bg-fg" />
               </span>
             </span>
-            <span className="hidden h-7 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-[11px] text-muted sm:inline-flex">
+            <span className="hidden h-7 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-2xs text-muted sm:inline-flex">
               <Search className="size-3" />
               Search
             </span>
@@ -52,8 +52,8 @@ export function DesktopPreview({
             <Wifi className="hidden size-3.5 sm:block" />
             <Volume2 className="hidden size-3.5 sm:block" />
             <div className="px-1 text-right leading-tight">
-              <div className="text-[11px] font-medium tabular-nums">{formatClock(clock)}</div>
-              <div className="text-[10px] text-muted">{formatClockLong(clock)}</div>
+              <div className="text-2xs font-medium tabular-nums">{formatClock(clock)}</div>
+              <div className="text-2xs text-muted">{formatClockLong(clock)}</div>
             </div>
           </div>
         </div>
@@ -68,7 +68,7 @@ function DesktopIcon({ icon, label }: { icon: ReactNode; label: string }) {
       <span className="grid size-9 place-items-center rounded-xs bg-bg/30 shadow-[var(--shadow-border)]">
         {icon}
       </span>
-      <span className="text-[10px] tracking-wide text-fg/90">{label}</span>
+      <span className="text-2xs tracking-wide text-fg/90">{label}</span>
     </div>
   );
 }

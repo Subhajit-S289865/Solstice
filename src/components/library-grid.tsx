@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ImagePlus } from "lucide-react";
 import { WallpaperThumb } from "./wallpaper-thumb";
 import type { Wallpaper } from "@/lib/types";
 
@@ -38,7 +39,7 @@ export function LibraryGrid({
     count: rowCount,
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowHeight,
-    overscan: 8,
+    overscan: 6,
     measureElement: (el) => el.getBoundingClientRect().height,
   });
 
@@ -49,7 +50,17 @@ export function LibraryGrid({
   return (
     <div ref={parentRef} className="scrollbar-thin h-full min-h-0 overflow-y-auto pr-1">
       {items.length === 0 ? (
-        <div className="grid h-40 place-items-center text-sm text-muted">No wallpapers in this filter.</div>
+        <div className="grid min-h-40 place-items-center px-6 text-center">
+          <div>
+            <ImagePlus className="mx-auto size-6 text-subtle" />
+            <p className="mt-3 text-sm font-medium text-fg">No media in this filter</p>
+            <p className="mt-1 text-xs text-muted">
+              {inserting
+                ? "Import photos or video, or pick an item from All media to add it to this slot."
+                : "Import files, or watch a folder in Engine. Only the current wallpaper is decoded."}
+            </p>
+          </div>
+        </div>
       ) : (
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((row) => {

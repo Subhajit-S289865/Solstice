@@ -14,9 +14,9 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "Wallpaper studio for photos, GIFs, and live video. One at a time, on a day schedule, with GPU and audio controls.",
+          "Windows wallpaper studio for photos, GIFs, and live video. One at a time, on a day schedule.",
       },
-      { name: "theme-color", content: "#0a0a0b" },
+      { name: "theme-color", content: "#0c0c0e" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
@@ -27,7 +27,7 @@ export const Route = createRootRoute({
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Serif:ital@0;1&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,400;0,500;0,600;1,400&display=swap",
       },
     ],
   }),

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarRange, Gauge, Monitor, Power, Search, Upload } from "lucide-react";
+import { CalendarRange, Gauge, Search, Upload, X } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { DesktopPreview } from "./desktop-preview";
 import { DesktopBridge, applyDesktopWallpaper, stopDesktopWallpaper } from "./desktop-bridge";
@@ -11,6 +11,7 @@ import { LibraryGrid } from "./library-grid";
 import { ScheduleDialog } from "./schedule-dialog";
 import { SlotBoard, SlotQueue } from "./slot-board";
 import { CollectionChips, Sidebar } from "./sidebar";
+import { StatusBar } from "./status-bar";
 import { Transport } from "./transport";
 import type { LayerEngine } from "./wallpaper-layer";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ export function AppShell() {
   const [dragOver, setDragOver] = useState(false);
   const [tabHidden, setTabHidden] = useState(false);
   const [insertSlotId, setInsertSlotId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"title" | "kind">("title");
   const prevKey = useRef<string | null>(null);
   const lastEsc = useRef(0);
 
@@ -384,8 +386,17 @@ export function AppShell() {
         (w) => w.title.toLowerCase().includes(q) || w.collection.toLowerCase().includes(q),
       );
     }
-    return items;
-  }, [imports, collection, kindFilter, query]);
+    const copy = [...items];
+    copy.sort((a, b) => {
+      if (sortBy === "kind") {
+        const order = { live: 0, gif: 1, photo: 2 } as const;
+        const d = order[a.kind] - order[b.kind];
+        if (d) return d;
+      }
+      return a.title.localeCompare(b.title);
+    });
+    return copy;
+  }, [imports, collection, kindFilter, query, sortBy]);
 
   const assignedIds = useMemo(
     () => new Set(insertSlotId ? uniqueWallpaperIds(slotClips[insertSlotId] ?? []) : []),
@@ -454,72 +465,57 @@ export function AppShell() {
           void onDrop(Array.from(e.dataTransfer.files));
         }}
       >
-        <header className="flex h-14 shrink-0 items-center gap-3 px-3 sm:px-4">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 sm:h-14 sm:gap-3 sm:px-4">
           <div className="min-w-0">
-            <p className="font-display text-xl leading-none tracking-tight">Solstice</p>
-            <p className="hidden text-xs text-subtle sm:block">One wallpaper at a time</p>
+            <p className="font-display text-lg leading-none tracking-tight sm:text-xl">Solstice</p>
+            <p className="hidden text-xs text-subtle sm:block">Wallpaper studio</p>
           </div>
-          <div className="relative ml-auto hidden min-w-0 max-w-xs flex-1 sm:block">
+          <div className="relative ml-auto hidden min-w-0 max-w-sm flex-1 md:block">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search library"
-              className="pl-9"
+              className="h-10 pl-9"
               aria-label="Search library"
             />
           </div>
-          <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
-            <Upload className="size-4" />
-            Import
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setScheduleOpen(true)} aria-label="Schedule">
-            <CalendarRange className="size-4" />
-            <span className="hidden sm:inline">Schedule</span>
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setEngineOpen(true)} aria-label="Engine">
-            <Gauge className="size-4" />
-            <span className="hidden sm:inline">Engine</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="hidden sm:inline-flex"
-            onClick={onDesktopApply}
-            aria-label="Desktop wallpaper"
-          >
-            <Monitor className="size-4" />
-            <span className="hidden sm:inline">Desktop</span>
-          </Button>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={stopApp}
-                aria-label="Kill switch — K, Shift+Esc, or double Esc"
-              >
-                <Power className="size-4" />
-                <span className="hidden sm:inline">Kill</span>
+              <Button variant="secondary" size="sm" className="h-10" onClick={() => setImportOpen(true)}>
+                <Upload className="size-4" />
+                <span className="hidden sm:inline">Import</span>
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Stop wallpaper — K, Shift+Esc, or Esc twice</TooltipContent>
+            <TooltipContent>Add photos, GIFs, or video</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-10" onClick={() => setScheduleOpen(true)} aria-label="Schedule">
+                <CalendarRange className="size-4" />
+                <span className="hidden lg:inline">Schedule</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Time slots and playlists</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-10" onClick={() => setEngineOpen(true)} aria-label="Engine">
+                <Gauge className="size-4" />
+                <span className="hidden lg:inline">Engine</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Quality, FPS, monitors, folders</TooltipContent>
           </Tooltip>
         </header>
-        {!isTauri() ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-surface-2 px-3 py-2 text-xs sm:px-4">
-            <span className="text-subtle">Windows PC files</span>
-            <a className="underline decoration-muted underline-offset-2 hover:text-fg" href="/windows/index.html" target="_blank" rel="noreferrer">
-              Download page
-            </a>
-            <a className="underline decoration-muted underline-offset-2 hover:text-fg" href="/windows/update-solstice-rust.ps1" download>
-              Rust updater
-            </a>
-            <a className="underline decoration-muted underline-offset-2 hover:text-fg" href="/solstice-windows-source.zip" download>
-              Source zip
-            </a>
-          </div>
-        ) : null}
+        <StatusBar
+          wallpaper={wallpaper}
+          period={period}
+          slotId={slot.id}
+          onDesktopApply={onDesktopApply}
+          onStop={stopApp}
+        />
+        <WebSourceBar />
 
 
         <div className="flex min-h-0 flex-1">
@@ -544,7 +540,7 @@ export function AppShell() {
               onFullscreen={() => setFullscreen(true)}
             />
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2">
-              <div className="flex items-center justify-between px-3 pb-2 sm:px-4">
+              <div className="flex items-center justify-between gap-2 px-3 pb-2 sm:px-4">
                 <p className="text-xs text-muted">
                   <span className="tabular-nums text-fg">{visible.length.toLocaleString()}</span> in view
                   <span className="hidden sm:inline">
@@ -552,14 +548,28 @@ export function AppShell() {
                     · {(CATALOG.length + imports.length).toLocaleString()} in library
                   </span>
                 </p>
-                <div className="sm:hidden">
-                  <Input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search"
-                    className="h-9 w-36"
-                    aria-label="Search library"
-                  />
+                <div className="flex items-center gap-2">
+                  <label className="hidden items-center gap-1.5 text-xs text-muted sm:flex">
+                    Sort
+                    <select
+                      className="h-9 rounded-sm bg-surface-2 px-2 text-xs text-fg shadow-[var(--shadow-border)]"
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value === "kind" ? "kind" : "title")}
+                      aria-label="Sort library"
+                    >
+                      <option value="title">Title</option>
+                      <option value="kind">Type</option>
+                    </select>
+                  </label>
+                  <div className="sm:hidden">
+                    <Input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Search"
+                      className="h-9 w-32"
+                      aria-label="Search library"
+                    />
+                  </div>
                 </div>
               </div>
               <CollectionChips />
@@ -586,11 +596,11 @@ export function AppShell() {
 
         {dragOver ? (
           <div className="pointer-events-none fixed inset-0 z-40 grid place-items-center bg-bg/70">
-            <div className="rounded-xl bg-surface px-8 py-6 text-center shadow-[var(--shadow-border)]">
+            <div className="rounded-xl bg-surface px-8 py-6 text-center shadow-[var(--shadow-lift)]">
               <p className="font-display text-2xl">Drop to import</p>
               <p className="mt-1 text-sm text-muted">
                 {insertSlotId
-                  ? `Drop onto the page to insert into ${TIME_SLOTS.find((s) => s.id === insertSlotId)?.label ?? "this slot"}`
+                  ? `Files go into ${TIME_SLOTS.find((s) => s.id === insertSlotId)?.label ?? "this slot"}`
                   : "Photos, GIFs, and video — drop on a time slot to insert"}
               </p>
             </div>
@@ -621,5 +631,50 @@ export function AppShell() {
         <Toaster theme="dark" position="bottom-right" richColors={false} />
       </div>
     </TooltipProvider>
+  );
+}
+
+function WebSourceBar() {
+  const [ready, setReady] = useState(false);
+  const [hide, setHide] = useState(false);
+  useEffect(() => {
+    try {
+      setHide(sessionStorage.getItem("solstice-hide-src") === "1");
+    } catch {
+      /* ignore */
+    }
+    setReady(true);
+  }, []);
+  if (!ready || isTauri() || hide) return null;
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-surface-2 px-3 py-2 text-xs sm:px-4">
+      <span className="text-subtle">Windows app source</span>
+      <a
+        className="underline decoration-muted underline-offset-2 hover:text-fg"
+        href="https://github.com/Subhajit-S289865/Solstice"
+        target="_blank"
+        rel="noreferrer"
+      >
+        GitHub
+      </a>
+      <a className="underline decoration-muted underline-offset-2 hover:text-fg" href="/windows/index.html" target="_blank" rel="noreferrer">
+        Download page
+      </a>
+      <button
+        type="button"
+        className="ml-auto inline-flex size-9 items-center justify-center rounded-sm text-muted hover:bg-surface hover:text-fg"
+        aria-label="Hide source bar"
+        onClick={() => {
+          try {
+            sessionStorage.setItem("solstice-hide-src", "1");
+          } catch {
+            /* ignore */
+          }
+          setHide(true);
+        }}
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
   );
 }

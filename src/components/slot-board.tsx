@@ -112,24 +112,33 @@ export function SlotBoard({
         }}
       />
 
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
+      <div className="flex h-12 overflow-hidden rounded-md bg-surface-2 shadow-[var(--shadow-border)]">
         {TIME_SLOTS.map((slot) => {
           const n = (slotClips[slot.id] ?? []).length;
           const now = slot.id === activeSlotId;
           const on = slot.id === insertSlotId;
+          const mins = slot.endMin - slot.startMin;
+          const flex = mins > 0 ? mins : mins + 24 * 60;
           return (
             <button
               key={slot.id}
               type="button"
               onClick={() => onSelectSlot(slot.id)}
+              style={{ flex }}
               className={cn(
-                "h-10 shrink-0 rounded-full px-3 text-xs font-medium transition-colors duration-[var(--motion-quick)]",
-                on ? "bg-fg text-bg" : "bg-surface-2 text-muted hover:text-fg",
+                "relative min-w-0 overflow-hidden px-1.5 text-left transition-colors duration-[var(--motion-quick)]",
+                on ? "bg-cta text-cta-fg" : now ? "bg-surface text-fg" : "text-muted hover:bg-surface hover:text-fg",
               )}
+              aria-pressed={on}
+              aria-current={now ? "true" : undefined}
+              title={`${slot.label} ${slot.range}`}
             >
-              {slot.label}
-              <span className={cn("ml-1.5 tabular-nums", on ? "text-bg/70" : "text-subtle")}>
-                {now ? "Now" : n}
+              {now && !on ? (
+                <span className="absolute inset-x-0 top-0 h-0.5 bg-live" aria-hidden />
+              ) : null}
+              <span className="block truncate text-2xs font-medium leading-tight">{slot.label}</span>
+              <span className={cn("block text-2xs tabular-nums", on ? "text-cta-fg/70" : "text-subtle")}>
+                {now ? "Now" : n > 0 ? `${n}` : slot.range.slice(0, 5)}
               </span>
             </button>
           );
@@ -138,7 +147,7 @@ export function SlotBoard({
 
       {selected ? (
         <div
-          className="mt-1.5 flex flex-col gap-1.5 rounded-md bg-surface-2 px-2.5 py-2 shadow-[var(--shadow-border)] sm:flex-row sm:items-center"
+          className="mt-1.5 flex flex-col gap-1.5 rounded-lg bg-surface px-3 py-2.5 shadow-[var(--shadow-border)] sm:flex-row sm:items-center"
           onDragOver={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -206,8 +215,8 @@ function InsertBtn({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "inline-flex h-10 items-center justify-center gap-1.5 rounded-xs px-3 text-xs font-medium",
-        primary ? "bg-fg text-bg" : "bg-bg/50 text-fg shadow-[var(--shadow-border)]",
+        "inline-flex h-11 items-center justify-center gap-1.5 rounded-xs px-3 text-xs font-medium",
+        primary ? "bg-cta text-cta-fg" : "bg-bg/50 text-fg shadow-[var(--shadow-border)]",
       )}
     >
       {icon}

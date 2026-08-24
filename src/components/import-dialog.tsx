@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
 import { FolderUp, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,9 +10,11 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { ingestFiles } from "@/lib/import-files";
+import { folderIndexMessage, logError } from "@/lib/errors";
 import { convertPath, isTauri, mediaToWallpaper, native } from "@/lib/native";
 import { useDesktopStore } from "@/lib/desktop-store";
 import { useWallpaperStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
 
 export function ImportDialog({
   open,
@@ -63,14 +64,46 @@ export function ImportDialog({
     }
   }
 
+  async function handleFolder() {
+    if (isTauri()) {
+      setBusy(true);
+      try {
+        const path = await native.pickFolder();
+        if (!path) return;
+        setLabel("Indexing folder…");
+        await native.addFolder(path);
+        const folders = await native.folders();
+        setFolders(folders);
+        setFolderTotal(folders.reduce((n, f) => n + f.count, 0));
+        const list = await native.list({ limit: 400 });
+        const walls = await Promise.all(
+          list.items.map(async (row) => mediaToWallpaper(row, await convertPath(row.path))),
+        );
+        const kept = useWallpaperStore.getState().imports.filter((w) => !w.path);
+        hydrateImports(kept.concat(walls));
+        setCollection("Folders");
+        toast(`Indexed ${list.total.toLocaleString()} files by path.`);
+        onOpenChange(false);
+      } catch (err) {
+        logError("folder index", err);
+        toast(folderIndexMessage(err));
+      } finally {
+        setBusy(false);
+        setLabel("");
+      }
+      return;
+    }
+    folderRef.current?.click();
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Import a library</DialogTitle>
           <DialogDescription>
-            Drop a folder of 1,000–2,000 photos, or pick GIFs and high-resolution video. Solstice
-            shows one at a time — by interval, time of day, or your own schedule.
+            Add a folder of photos, or pick GIFs and video. Solstice shows one at a time — by
+            interval, time of day, or your schedule.
           </DialogDescription>
         </DialogHeader>
 
@@ -96,63 +129,40 @@ export function ImportDialog({
         />
 
         <div className="grid gap-2 sm:grid-cols-2">
-          <Button
+          <button
             type="button"
-            variant="secondary"
-            className="h-24 flex-col gap-2"
             disabled={busy}
-            onClick={() => {
-              if (isTauri()) {
-                void (async () => {
-                  setBusy(true);
-                  try {
-                    const path = await native.pickFolder();
-                    if (!path) return;
-                    setLabel("Indexing folder…");
-                    await native.addFolder(path);
-                    const folders = await native.folders();
-                    setFolders(folders);
-                    setFolderTotal(folders.reduce((n, f) => n + f.count, 0));
-                    const list = await native.list({ limit: 400 });
-                    const walls = await Promise.all(
-                      list.items.map(async (row) => mediaToWallpaper(row, await convertPath(row.path))),
-                    );
-                    const kept = useWallpaperStore.getState().imports.filter((w) => !w.path);
-                    hydrateImports(kept.concat(walls));
-                    setCollection("Folders");
-                    toast(`Indexed ${list.total.toLocaleString()} files by path.`);
-                    onOpenChange(false);
-                  } catch {
-                    toast("Could not index that folder.");
-                  } finally {
-                    setBusy(false);
-                    setLabel("");
-                  }
-                })();
-                return;
-              }
-              folderRef.current?.click();
-            }}
+            onClick={() => void handleFolder()}
+            className={cn(
+              "flex min-h-28 flex-col items-start gap-1.5 rounded-md bg-surface-2 p-4 text-left shadow-[var(--shadow-border)] transition-[box-shadow] duration-[var(--motion-quick)] hover:shadow-[var(--shadow-border-hover)] disabled:opacity-40",
+            )}
           >
-            <FolderUp className="size-5" />
-            Folder of photos
-          </Button>
-          <Button
+            <FolderUp className="size-5 text-cta" />
+            <span className="text-sm font-medium text-fg">Folder of photos</span>
+            <span className="text-xs text-muted">
+              {isTauri()
+                ? "Index JPG, PNG, WebP, GIF, MP4, WebM, MOV by path. Files stay on disk."
+                : "Pick a folder. Large libraries stay on this device."}
+            </span>
+          </button>
+          <button
             type="button"
-            variant="secondary"
-            className="h-24 flex-col gap-2"
             disabled={busy}
             onClick={() => fileRef.current?.click()}
+            className="flex min-h-28 flex-col items-start gap-1.5 rounded-md bg-surface-2 p-4 text-left shadow-[var(--shadow-border)] transition-[box-shadow] duration-[var(--motion-quick)] hover:shadow-[var(--shadow-border-hover)] disabled:opacity-40"
           >
-            <ImagePlus className="size-5" />
-            Files, GIFs, video
-          </Button>
+            <ImagePlus className="size-5 text-cta" />
+            <span className="text-sm font-medium text-fg">Files, GIFs, video</span>
+            <span className="text-xs text-muted">
+              Choose individual stills or local video. Only the current wallpaper is decoded.
+            </span>
+          </button>
         </div>
 
         {busy ? (
           <div className="space-y-2 pt-2">
             <Progress value={progress} />
-            <p className="text-xs tabular-nums text-muted">{label}</p>
+            <p className="text-xs tabular-nums text-muted">{label || "Working…"}</p>
           </div>
         ) : (
           <p className="pt-1 text-xs text-subtle">

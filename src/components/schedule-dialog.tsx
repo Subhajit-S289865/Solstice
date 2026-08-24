@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Film, ImagePlus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { PlaylistPanel } from "./playlist-panel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -76,8 +77,8 @@ export function ScheduleDialog({
         <DialogHeader>
           <DialogTitle>Time slots</DialogTitle>
           <DialogDescription>
-            Build a playlist per block. The same file can appear twice with different in/out points.
-            Mix stills and video in any slot.
+            Build a playlist per block. The same file can appear twice with different start and end
+            points. Mix stills and video in any slot.
           </DialogDescription>
         </DialogHeader>
 
@@ -117,14 +118,19 @@ export function ScheduleDialog({
                 key={slot.id}
                 className={cn(
                   "rounded-md bg-surface-2 p-3 shadow-[var(--shadow-border)]",
-                  on && "shadow-[0_0_0_1px_var(--color-accent)]",
+                  on && "shadow-[0_0_0_1px_var(--color-cta)]",
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-medium text-fg">
+                  <div className="min-w-0">
+                    <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-fg">
                       {slot.label}
-                      {on ? <span className="ml-2 text-xs font-normal text-accent">Now</span> : null}
+                      {on ? <Badge variant="success">Now</Badge> : null}
+                      {clips.length > 0 ? (
+                        <span className="text-2xs font-normal tabular-nums text-subtle">
+                          {clips.length} in playlist
+                        </span>
+                      ) : null}
                     </p>
                     <p className="text-xs tabular-nums text-muted">{slot.range}</p>
                   </div>
@@ -132,6 +138,7 @@ export function ScheduleDialog({
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="h-10"
                     onClick={() => {
                       assignToSlot(slot.id, activeId);
                       setMode("slots");
@@ -147,7 +154,7 @@ export function ScheduleDialog({
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className="flex-1"
+                    className="h-10 flex-1"
                     disabled={busy === slot.id}
                     onClick={() => {
                       targetSlot.current = slot.id;
@@ -161,7 +168,7 @@ export function ScheduleDialog({
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className="flex-1"
+                    className="h-10 flex-1"
                     disabled={busy === slot.id}
                     onClick={() => {
                       targetSlot.current = slot.id;
@@ -173,7 +180,9 @@ export function ScheduleDialog({
                   </Button>
                 </div>
                 {clips.length === 0 ? (
-                  <p className="mt-2 text-xs text-subtle">Empty — uses the matching library set.</p>
+                  <p className="mt-2 text-xs text-subtle">
+                    Empty — uses the matching library set until you insert items.
+                  </p>
                 ) : (
                   <PlaylistPanel slotId={slot.id} />
                 )}

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { logError, wallpaperAttachMessage, wallpaperDetachMessage } from "@/lib/errors";
 import { emitFrame, overlaySlot, type DesktopFrame } from "@/lib/desktop-sync";
 import { useDesktopStore } from "@/lib/desktop-store";
 import { convertPath, isTauri, mediaToWallpaper, native } from "@/lib/native";
@@ -232,12 +233,18 @@ export async function applyDesktopWallpaper(): Promise<boolean> {
     toast("Desktop wallpaper is on — behind the icons.");
     return true;
   } catch (err) {
-    toast(err instanceof Error ? err.message : "Could not attach to the desktop.");
+    logError("desktop attach", err);
+    toast(wallpaperAttachMessage(err));
     return false;
   }
 }
 
 export async function stopDesktopWallpaper() {
-  await native.detach();
+  try {
+    await native.detach();
+  } catch (err) {
+    logError("desktop detach", err);
+    toast(wallpaperDetachMessage(err));
+  }
   useDesktopStore.getState().setAttached(false);
 }
