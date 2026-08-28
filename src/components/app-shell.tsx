@@ -45,7 +45,6 @@ function isTypingTarget(el: EventTarget | null): boolean {
   return Boolean(el.closest("input, textarea, select, [contenteditable='true']"));
 }
 
-
 const EMPTY_WALLPAPER: Wallpaper = {
   id: "__empty__",
   title: "No media selected",
@@ -71,6 +70,12 @@ export function AppShell() {
   const [seekTo, setSeekTo] = useState<number | null>(null);
   const prevKey = useRef<string | null>(null);
   const lastEsc = useRef(0);
+  const commandContextRef = useRef<{
+    period: ReturnType<typeof periodFromDate>;
+    slotId: string;
+    stopApp: () => void;
+    restartApp: () => void;
+  } | null>(null);
 
   const mode = useWallpaperStore((s) => s.mode);
   const playing = useWallpaperStore((s) => s.playing);
@@ -139,6 +144,35 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+
+    void native
+      .settings()
+      .then((cfg) => {
+        if (cancelled || cfg.startMinimized) return;
+
+        // The native main window starts hidden. Wait for two browser paint
+        // opportunities so the first complete React frame is ready before the
+        // window becomes visible. This avoids exposing WebView2's blank/black
+        // startup surface without delaying the working wallpaper engine.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (!cancelled) void native.showMain();
+          });
+        });
+      })
+      .catch(() => {
+        // Keep the window hidden rather than flashing a black startup surface
+        // if native settings are temporarily unavailable.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     setNow(new Date());
     const id = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(id);
@@ -169,23 +203,18 @@ export function AppShell() {
   const period = periodFromDate(clock);
   const slot = slotFromDate(clock);
   const enginePaused = killed || !playing || (tabHidden && (pauseOnHidden || gpuSaver));
-  const queue = playbackClips(
-    { imports, shuffle, shuffleSeed, mode, slotClips },
-    period,
-    slot.id,
-  );
+  const queue = playbackClips({ imports, shuffle, shuffleSeed, mode, slotClips }, period, slot.id);
   const activeResolved =
     queue.find((r) => r.clip.clipId === activeClipId) ??
     queue.find((r) => r.wallpaper.id === activeId) ??
     null;
   const activeClip = activeResolved?.clip;
-  const wallpaper = activeResolved?.wallpaper ?? wallpaperById(activeId, imports) ?? imports[0] ?? EMPTY_WALLPAPER;
+  const wallpaper =
+    activeResolved?.wallpaper ?? wallpaperById(activeId, imports) ?? imports[0] ?? EMPTY_WALLPAPER;
   const activeMediaSettings = mediaSettings[wallpaper.id] ?? DEFAULT_MEDIA_PLAYBACK;
   const loopVideo = killed || !playing || mode === "hold" || queue.length <= 1;
   const slotRemaining = now ? msUntilSlotEnd(slot, clock) : 0;
-  const holdMs = activeClip
-    ? clipPlayMs(activeClip, wallpaper, intervalMs)
-    : intervalMs;
+  const holdMs = activeClip ? clipPlayMs(activeClip, wallpaper, intervalMs) : intervalMs;
   const remaining = now ? Math.max(0, holdMs - (Date.now() - lastChangeAt)) : holdMs;
   const mediaClock = activeClip ? clipUsesMediaClock(activeClip, wallpaper) : false;
   const nextResolved = (() => {
@@ -206,11 +235,16 @@ export function AppShell() {
     s.next(period, slot.id);
   }, [period, slot.id]);
 
+  const onDesktopMediaEnded = useCallback(() => {
+    next(period, slot.id);
+  }, [next, period, slot.id]);
+
   const onDuration = useCallback(
     (seconds: number) => {
       if (!activeClip) return;
       if (activeClip.clipId === activeClip.wallpaperId) return;
-      if (activeClip.durationSec != null && Math.abs(activeClip.durationSec - seconds) < 0.05) return;
+      if (activeClip.durationSec != null && Math.abs(activeClip.durationSec - seconds) < 0.05)
+        return;
       updateClip(slot.id, activeClip.clipId, { durationSec: seconds });
     },
     [activeClip, slot.id, updateClip],
@@ -221,12 +255,15 @@ export function AppShell() {
     if (duration > 0) setVideoDuration(duration);
   }, []);
 
-  const seekVideo = useCallback((seconds: number) => {
-    const max = videoDuration > 0 ? videoDuration : Math.max(seconds, 0);
-    const nextTime = Math.max(0, Math.min(seconds, max));
-    setVideoTime(nextTime);
-    setSeekTo(nextTime);
-  }, [videoDuration]);
+  const seekVideo = useCallback(
+    (seconds: number) => {
+      const max = videoDuration > 0 ? videoDuration : Math.max(seconds, 0);
+      const nextTime = Math.max(0, Math.min(seconds, max));
+      setVideoTime(nextTime);
+      setSeekTo(nextTime);
+    },
+    [videoDuration],
+  );
 
   const engine: LayerEngine = useMemo(
     () => ({
@@ -277,7 +314,8 @@ export function AppShell() {
       activeClip?.inSec,
       activeClip?.outSec,
       nextResolved?.wallpaper.src,
-    ],  );
+    ],
+  );
 
   const desktopFrame = useMemo(
     () =>
@@ -317,7 +355,11 @@ export function AppShell() {
   useEffect(() => {
     if (killed) return;
     const key =
-      mode === "slots" ? `slots:${slot.id}` : mode === "daycycle" ? `day:${period}` : `other:${mode}`;
+      mode === "slots"
+        ? `slots:${slot.id}`
+        : mode === "daycycle"
+          ? `day:${period}`
+          : `other:${mode}`;
     if (mode !== "daycycle" && mode !== "slots") {
       prevKey.current = key;
       return;
@@ -421,7 +463,8 @@ export function AppShell() {
   const visible = useMemo(() => {
     let items = allWallpapers(imports);
     if (collection === "Imports") items = items.filter((w) => w.imported && !w.path);
-    else if (collection === "Folders") items = items.filter((w) => Boolean(w.path) || w.collection === "Folders");
+    else if (collection === "Folders")
+      items = items.filter((w) => Boolean(w.path) || w.collection === "Folders");
     else if (collection !== "all") items = items.filter((w) => w.collection === collection);
     if (kindFilter !== "all") items = items.filter((w) => w.kind === kindFilter);
     const q = query.trim().toLowerCase();
@@ -494,25 +537,52 @@ export function AppShell() {
     },
     [addImports, applyClip, assignManyToSlot, insertSlotId, setCollection, setMode],
   );
-
+  commandContextRef.current = { period, slotId: slot.id, stopApp, restartApp };
 
   useEffect(() => {
-    let unlisten = () => undefined;
-    void native.listen<{ cmd: string }>("solstice://cmd", ({ cmd }) => {
-      const state = useWallpaperStore.getState();
-      if (cmd === "toggle") state.setPlaying(!state.playing);
-      else if (cmd === "next") state.next(period, slot.id);
-      else if (cmd === "prev") state.prev(period, slot.id);
-      else if (cmd === "stop" || cmd === "kill") stopApp();
-      else if (cmd === "revive") restartApp();
-      else if (cmd === "mute") state.setMuted(!state.muted);
-      else if (cmd.startsWith("volume:")) {
-        const v = Number(cmd.slice(7));
-        if (Number.isFinite(v)) { state.setVolume(Math.max(0, Math.min(1, v))); if (v > 0) state.setMuted(false); }
-      }
-    }).then((fn) => { unlisten = fn; });
-    return () => unlisten();
-  }, [period, slot.id, stopApp, restartApp]);
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void native
+      .listen<{ cmd: string }>("solstice://cmd", ({ cmd }) => {
+        const context = commandContextRef.current;
+        if (!context) return;
+        const state = useWallpaperStore.getState();
+        if (cmd === "toggle") state.setPlaying(!state.playing);
+        else if (cmd === "next") state.next(context.period, context.slotId);
+        else if (cmd === "prev") state.prev(context.period, context.slotId);
+        else if (cmd === "stop" || cmd === "kill") context.stopApp();
+        else if (cmd === "revive") context.restartApp();
+        else if (cmd === "mute") state.setMuted(!state.muted);
+        else if (cmd === "sync_widget") {
+          void native.widgetState({
+            playing: state.playing,
+            muted: state.muted,
+            volume: state.volume,
+          });
+        } else if (cmd.startsWith("volume:")) {
+          const v = Number(cmd.slice(7));
+          if (Number.isFinite(v)) {
+            state.setVolume(Math.max(0, Math.min(1, v)));
+            if (v > 0) state.setMuted(false);
+          }
+        }
+      })
+      .then((listener) => {
+        if (disposed) listener();
+        else unlisten = listener;
+      })
+      .catch((error) => console.error("[Aleya] command listener failed", error));
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    void native.widgetState({ playing, muted, volume });
+  }, [playing, muted, volume]);
 
   return (
     <TooltipProvider delayDuration={250}>
@@ -532,8 +602,12 @@ export function AppShell() {
           <div className="flex min-w-0 items-center gap-2.5">
             <AleyaMark className="shrink-0" />
             <div className="min-w-0">
-              <p className="aleya-wordmark font-display text-base leading-none text-fg sm:text-lg">Aleya</p>
-              <p className="hidden text-[10px] tracking-wide text-subtle sm:block">Light · Motion · Atmosphere</p>
+              <p className="aleya-wordmark font-display text-base leading-none text-fg sm:text-lg">
+                Aleya
+              </p>
+              <p className="hidden text-[10px] tracking-wide text-subtle sm:block">
+                Light · Motion · Atmosphere
+              </p>
             </div>
           </div>
           <div className="relative ml-auto hidden min-w-0 max-w-sm flex-1 md:block">
@@ -548,7 +622,12 @@ export function AppShell() {
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="secondary" size="sm" className="h-10" onClick={() => setImportOpen(true)}>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-10"
+                onClick={() => setImportOpen(true)}
+              >
                 <Upload className="size-4" />
                 <span className="hidden sm:inline">Import</span>
               </Button>
@@ -557,7 +636,13 @@ export function AppShell() {
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-10" onClick={() => setScheduleOpen(true)} aria-label="Schedule">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-10"
+                onClick={() => setScheduleOpen(true)}
+                aria-label="Schedule"
+              >
                 <CalendarRange className="size-4" />
                 <span className="hidden lg:inline">Schedule</span>
               </Button>
@@ -566,7 +651,13 @@ export function AppShell() {
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-10" onClick={() => setEngineOpen(true)} aria-label="Engine">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-10"
+                onClick={() => setEngineOpen(true)}
+                aria-label="Engine"
+              >
                 <Gauge className="size-4" />
                 <span className="hidden lg:inline">Engine</span>
               </Button>
@@ -583,7 +674,6 @@ export function AppShell() {
         />
         <WebSourceBar />
 
-
         <div className="flex min-h-0 flex-1">
           <Sidebar
             period={period}
@@ -594,7 +684,12 @@ export function AppShell() {
           />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="h-36 w-full shrink-0 px-3 pt-1 sm:h-44 sm:px-4 lg:h-[25vh] lg:max-h-[230px] lg:min-h-[150px]">
-              <DesktopPreview wallpaper={wallpaper} fit={activeMediaSettings.fit} engine={engine} clock={clock} />
+              <DesktopPreview
+                wallpaper={wallpaper}
+                fit={activeMediaSettings.fit}
+                engine={engine}
+                clock={clock}
+              />
             </div>
             <AleyaWidget />
             <Transport
@@ -612,7 +707,8 @@ export function AppShell() {
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2">
               <div className="flex items-center justify-between gap-2 px-3 pb-2 sm:px-4">
                 <p className="text-xs text-muted">
-                  <span className="tabular-nums text-fg">{visible.length.toLocaleString()}</span> in view
+                  <span className="tabular-nums text-fg">{visible.length.toLocaleString()}</span> in
+                  view
                   <span className="hidden sm:inline">
                     {" "}
                     · {imports.length.toLocaleString()} in library
@@ -688,17 +784,16 @@ export function AppShell() {
         ) : null}
 
         <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
-        <EngineDialog open={engineOpen} onOpenChange={setEngineOpen} onDesktopApply={onDesktopApply} mediaId={wallpaper.id} mediaTitle={wallpaper.title} />
+        <EngineDialog
+          open={engineOpen}
+          onOpenChange={setEngineOpen}
+          onDesktopApply={onDesktopApply}
+          mediaId={wallpaper.id}
+          mediaTitle={wallpaper.title}
+        />
         <ScheduleDialog open={scheduleOpen} onOpenChange={setScheduleOpen} activeSlotId={slot.id} />
         {killed ? <KillScreen onRestart={restartApp} /> : null}
-        <DesktopBridge
-          frame={desktopFrame}
-          onKill={stopApp}
-          onRevive={restartApp}
-          onNext={() => next(period, slot.id)}
-          onPrev={() => prev(period, slot.id)}
-          onTogglePlay={() => setPlaying(!useWallpaperStore.getState().playing)}
-        />
+        <DesktopBridge frame={desktopFrame} onNext={onDesktopMediaEnded} />
         <Toaster theme="dark" position="bottom-right" richColors={false} />
       </div>
     </TooltipProvider>
@@ -728,7 +823,12 @@ function WebSourceBar() {
       >
         GitHub
       </a>
-      <a className="underline decoration-muted underline-offset-2 hover:text-fg" href="/windows/index.html" target="_blank" rel="noreferrer">
+      <a
+        className="underline decoration-muted underline-offset-2 hover:text-fg"
+        href="/windows/index.html"
+        target="_blank"
+        rel="noreferrer"
+      >
         Download page
       </a>
       <button

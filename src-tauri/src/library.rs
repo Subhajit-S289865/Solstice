@@ -84,8 +84,10 @@ impl Library {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let path = dir.join("library.sqlite");
         let conn = Connection::open(path).map_err(|e| e.to_string())?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL;")
-            .map_err(|e| e.to_string())?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL;",
+        )
+        .map_err(|e| e.to_string())?;
         conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
@@ -135,7 +137,8 @@ impl Library {
                 })
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     pub fn add_folder(&self, path: &str) -> Result<FolderRow, String> {
@@ -164,23 +167,45 @@ impl Library {
         let mut added = 0;
         for raw in paths {
             let p = PathBuf::from(raw);
-            if !p.is_file() { continue; }
-            let Some((mime, kind)) = classify(&p) else { continue; };
+            if !p.is_file() {
+                continue;
+            }
+            let Some((mime, kind)) = classify(&p) else {
+                continue;
+            };
             let canon = p.canonicalize().unwrap_or(p.clone());
             let path = normalize_fs_path(&canon);
-            let parent = canon.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+            let parent = canon
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf();
             let parent_s = normalize_fs_path(&parent);
             let folder_id = {
                 let conn = self.conn.lock();
-                conn.execute("INSERT OR IGNORE INTO folders(path, recursive) VALUES (?1, 0)", params![parent_s])
-                    .map_err(|e| e.to_string())?;
-                conn.query_row("SELECT id FROM folders WHERE path=?1", params![parent_s], |r| r.get::<_, i64>(0))
-                    .map_err(|e| e.to_string())?
+                conn.execute(
+                    "INSERT OR IGNORE INTO folders(path, recursive) VALUES (?1, 0)",
+                    params![parent_s],
+                )
+                .map_err(|e| e.to_string())?;
+                conn.query_row(
+                    "SELECT id FROM folders WHERE path=?1",
+                    params![parent_s],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map_err(|e| e.to_string())?
             };
             let meta = std::fs::metadata(&canon).map_err(|e| e.to_string())?;
             let size = meta.len() as i64;
-            let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0);
-            let title = canon.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let title = canon
+                .file_stem()
+                .map(|x| x.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.clone());
             let id = format!("fs-{:x}", fnv(&path));
             let conn = self.conn.lock();
             conn.execute("INSERT INTO media(id,folder_id,path,title,kind,mime,size,mtime) VALUES (?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(path) DO UPDATE SET folder_id=excluded.folder_id,title=excluded.title,kind=excluded.kind,mime=excluded.mime,size=excluded.size,mtime=excluded.mtime", params![id,folder_id,path,title,kind,mime,size,mtime]).map_err(|e| e.to_string())?;
@@ -225,8 +250,10 @@ impl Library {
         }
         let count_sql = format!("SELECT COUNT(*) FROM media {where_sql}");
         let mut count_stmt = conn.prepare(&count_sql).map_err(|e| e.to_string())?;
-        let refs: Vec<&dyn rusqlite::types::ToSql> =
-            binds.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> = binds
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
         let total: i64 = count_stmt
             .query_row(refs.as_slice(), |r| r.get(0))
             .map_err(|e| e.to_string())?;
@@ -257,7 +284,9 @@ impl Library {
                 })
             })
             .map_err(|e| e.to_string())?;
-        let items = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+        let items = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
         Ok((items, total))
     }
 
@@ -308,9 +337,11 @@ impl Library {
     fn scan_path(&self, path: &str) -> Result<ScanReport, String> {
         let id: i64 = {
             let conn = self.conn.lock();
-            conn.query_row("SELECT id FROM folders WHERE path = ?1", params![path], |r| {
-                r.get(0)
-            })
+            conn.query_row(
+                "SELECT id FROM folders WHERE path = ?1",
+                params![path],
+                |r| r.get(0),
+            )
             .map_err(|e| e.to_string())?
         };
         self.scan_folder_id(id, path)

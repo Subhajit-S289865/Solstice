@@ -59,6 +59,12 @@ export interface DesktopSettings {
   hotkeys: DesktopHotkeys;
 }
 
+export interface WidgetPlaybackState {
+  playing: boolean;
+  muted: boolean;
+  volume: number;
+}
+
 export const DEFAULT_HOTKEYS: DesktopHotkeys = {
   stop: "Control+Shift+K",
   restart: "Control+Shift+R",
@@ -183,7 +189,9 @@ export const native = {
       directory: false,
       multiple: true,
       title: "Import photos, GIFs, or videos",
-      filters: [{ name: "Media", extensions: ["jpg", "jpeg", "png", "webp", "gif", "mp4", "webm", "mov"] }],
+      filters: [
+        { name: "Media", extensions: ["jpg", "jpeg", "png", "webp", "gif", "mp4", "webm", "mov"] },
+      ],
     });
     if (!res) return [];
     return Array.isArray(res) ? res : [res];
@@ -223,9 +231,13 @@ export const native = {
     if (!isTauri()) return;
     await invoke("widget_show");
   },
-  async wallpaperReady(monitor?: string | null): Promise<void> {
+  async widgetReady(): Promise<void> {
     if (!isTauri()) return;
-    await invoke("wallpaper_ready", { monitor: monitor ?? null });
+    await invoke("widget_ready");
+  },
+  async widgetState(state: WidgetPlaybackState): Promise<void> {
+    if (!isTauri()) return;
+    await invoke("widget_state", { state });
   },
   async widgetTopmost(pinned: boolean): Promise<void> {
     if (!isTauri()) return;

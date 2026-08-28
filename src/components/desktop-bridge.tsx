@@ -95,19 +95,7 @@ function dispatchFrames(frame: DesktopFrame) {
   }
 }
 
-export function DesktopBridge({
-  frame,
-  onKill,
-  onRevive,
-  onNext,
-  onPrev,
-}: {
-  frame: DesktopFrame;
-  onKill: () => void;
-  onRevive: () => void;
-  onNext: () => void;
-  onPrev: () => void;
-}) {
+export function DesktopBridge({ frame, onNext }: { frame: DesktopFrame; onNext: () => void }) {
   const setAttached = useDesktopStore((s) => s.setAttached);
   const setMonitors = useDesktopStore((s) => s.setMonitors);
   const setFolders = useDesktopStore((s) => s.setFolders);
@@ -182,34 +170,36 @@ export function DesktopBridge({
 
   useEffect(() => {
     if (!isTauri()) return;
-    let unFns: Array<() => void> = [];
+    let disposed = false;
+    const unFns: Array<() => void> = [];
     void (async () => {
-      unFns.push(
-        await native.listen<{ attached?: boolean }>("solstice://desktop", (p) => {
+      const desktopUnlisten = await native.listen<{ attached?: boolean }>(
+        "solstice://desktop",
+        (p) => {
           if (typeof p?.attached === "boolean") setAttached(p.attached);
           if (p?.attached) dispatchFrames(frameRef.current);
-        }),
+        },
       );
-      unFns.push(
-        await native.listen<{ cmd?: string }>("solstice://cmd", (p) => {
-          const cmd = p?.cmd;
-          if (cmd === "kill") onKill();
-          else if (cmd === "revive") onRevive();
-          else if (cmd === "next") onNext();
-          else if (cmd === "prev") onPrev();
-          else if (cmd === "show") void native.showMain();
-        }),
-      );
-      unFns.push(
-        await native.listen("solstice://ended", () => {
-          onNext();
-        }),
-      );
+      if (disposed) {
+        desktopUnlisten();
+        return;
+      }
+      unFns.push(desktopUnlisten);
+
+      const endedUnlisten = await native.listen("solstice://ended", () => {
+        onNext();
+      });
+      if (disposed) {
+        endedUnlisten();
+        return;
+      }
+      unFns.push(endedUnlisten);
     })();
     return () => {
+      disposed = true;
       for (const u of unFns) u();
     };
-  }, [onKill, onRevive, onNext, onPrev, setAttached]);
+  }, [onNext, setAttached]);
 
   useEffect(() => {
     if (!isTauri() || !attached) return;
@@ -230,7 +220,11 @@ export async function applyDesktopWallpaper(): Promise<boolean> {
   try {
     const selected = useWallpaperStore.getState().activeId;
     const media = useWallpaperStore.getState().imports.find((w) => w.id === selected);
-    console.info("[Solstice] Wallpaper requested", { selectedMediaId: selected, selectedMediaPath: media?.path ?? null, generatedMediaUrl: media?.src ?? null });
+    console.info("[Solstice] Wallpaper requested", {
+      selectedMediaId: selected,
+      selectedMediaPath: media?.path ?? null,
+      generatedMediaUrl: media?.src ?? null,
+    });
     await native.attach();
     useDesktopStore.getState().setAttached(true);
     toast("Desktop wallpaper is on — behind the icons.");

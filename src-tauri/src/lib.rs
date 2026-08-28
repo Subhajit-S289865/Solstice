@@ -18,6 +18,20 @@ struct AppState {
     data_dir: std::path::PathBuf,
     settings: Mutex<DesktopSettings>,
     last_frames: Mutex<HashMap<String, serde_json::Value>>,
+    widget: Mutex<WidgetWindowState>,
+}
+
+#[derive(Default)]
+struct WidgetWindowState {
+    ready: bool,
+}
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WidgetPlaybackState {
+    playing: bool,
+    muted: bool,
+    volume: f64,
 }
 
 fn parse_mode(s: &str) -> CoverMode {
@@ -107,7 +121,6 @@ fn attach_desktop_later(app: &tauri::AppHandle) {
     });
 }
 
-
 fn attach_desktop(app: &tauri::AppHandle) -> Result<(), String> {
     eprintln!("[Solstice] Wallpaper requested");
     let state = app.state::<AppState>();
@@ -155,7 +168,10 @@ fn attach_desktop(app: &tauri::AppHandle) -> Result<(), String> {
             for m in &enabled {
                 let label = format!("wallpaper-{}", m.id);
                 let win = build_wallpaper_window(app, &label, Some(&m.id))?;
-                eprintln!("[Solstice] Attaching {:?} wallpaper {} at {}x{}", mode, m.id, m.width, m.height);
+                eprintln!(
+                    "[Solstice] Attaching {:?} wallpaper {} at {}x{}",
+                    mode, m.id, m.width, m.height
+                );
                 wallpaper::attach(&win, CoverMode::Independent, Some(m))?;
             }
         }
@@ -199,7 +215,10 @@ fn attach_desktop(app: &tauri::AppHandle) -> Result<(), String> {
                 })
             };
             if let Some(ref m) = span_monitor {
-                eprintln!("[Solstice] Attaching span wallpaper to enabled bounds {}x{} at ({}, {})", m.width, m.height, m.x, m.y);
+                eprintln!(
+                    "[Solstice] Attaching span wallpaper to enabled bounds {}x{} at ({}, {})",
+                    m.width, m.height, m.x, m.y
+                );
                 wallpaper::attach(&win, CoverMode::Independent, Some(m))?;
             } else {
                 eprintln!("[Solstice] Attaching span wallpaper window to virtual desktop");
@@ -207,7 +226,10 @@ fn attach_desktop(app: &tauri::AppHandle) -> Result<(), String> {
             }
         }
     }
-    let _ = app.emit("solstice://desktop", serde_json::json!({ "attached": true }));
+    let _ = app.emit(
+        "solstice://desktop",
+        serde_json::json!({ "attached": true }),
+    );
     Ok(())
 }
 
@@ -219,7 +241,10 @@ fn detach_desktop(app: &tauri::AppHandle) -> Result<(), String> {
         .filter(|l| l == "wallpaper" || l.starts_with("wallpaper-"))
         .collect();
     close_labels(app, labels);
-    let _ = app.emit("solstice://desktop", serde_json::json!({ "attached": false }));
+    let _ = app.emit(
+        "solstice://desktop",
+        serde_json::json!({ "attached": false }),
+    );
     Ok(())
 }
 
@@ -345,7 +370,10 @@ fn library_folders(state: tauri::State<AppState>) -> Result<Vec<library::FolderR
 }
 
 #[tauri::command]
-fn library_add_folder(state: tauri::State<AppState>, path: String) -> Result<library::FolderRow, String> {
+fn library_add_folder(
+    state: tauri::State<AppState>,
+    path: String,
+) -> Result<library::FolderRow, String> {
     state.library.add_folder(&path)
 }
 
@@ -360,7 +388,10 @@ fn library_remove_folder(state: tauri::State<AppState>, id: i64) -> Result<(), S
 }
 
 #[tauri::command]
-fn library_scan(state: tauri::State<AppState>, folder_id: Option<i64>) -> Result<Vec<ScanReport>, String> {
+fn library_scan(
+    state: tauri::State<AppState>,
+    folder_id: Option<i64>,
+) -> Result<Vec<ScanReport>, String> {
     match folder_id {
         Some(id) => Ok(vec![state.library.scan_id(id)?]),
         None => state.library.scan_all(),
@@ -375,12 +406,18 @@ fn library_list(
     offset: Option<i64>,
     limit: Option<i64>,
 ) -> Result<serde_json::Value, String> {
-    let (items, total) = state.library.list(query, kind, offset.unwrap_or(0), limit.unwrap_or(200))?;
+    let (items, total) =
+        state
+            .library
+            .list(query, kind, offset.unwrap_or(0), limit.unwrap_or(200))?;
     Ok(serde_json::json!({ "items": items, "total": total }))
 }
 
 #[tauri::command]
-fn library_get(state: tauri::State<AppState>, id: String) -> Result<Option<library::MediaRow>, String> {
+fn library_get(
+    state: tauri::State<AppState>,
+    id: String,
+) -> Result<Option<library::MediaRow>, String> {
     state.library.get(&id)
 }
 
@@ -400,56 +437,72 @@ fn emit_cmd(app: tauri::AppHandle, cmd: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn wallpaper_ready(app: tauri::AppHandle, monitor: Option<String>) -> Result<(), String> {
-    let label = match monitor.as_deref() {
-        Some(id) => format!("wallpaper-{id}"),
-        None => "wallpaper".to_string(),
-    };
-    if let Some(w) = app.get_webview_window(&label) {
-        w.show().map_err(|e| e.to_string())?;
+fn show_widget(app: &tauri::AppHandle) -> Result<(), String> {
+    // Keep creation and reuse serialized: a second Control click cannot race a
+    // first click into creating another WebView or mounting another widget app.
+    let state = app.state::<AppState>();
+    let mut widget = state.widget.lock();
+    if let Some(w) = app.get_webview_window("widget") {
+        // A newly-created window stays hidden until ControlWidget has mounted
+        // its listener and completed its first React paint.
+        if widget.ready {
+            w.unminimize().map_err(|e| e.to_string())?;
+            w.show().map_err(|e| e.to_string())?;
+            w.set_focus().map_err(|e| e.to_string())?;
+        }
+        return Ok(());
     }
+
+    widget.ready = false;
+    // /widget is the single canonical router entry for the control window.
+    // Its native background is visible only while the hidden WebView boots.
+    let _w = WebviewWindowBuilder::new(app, "widget", WebviewUrl::App("/widget".into()))
+        .title("Aleya Control")
+        .inner_size(360.0, 188.0)
+        .min_inner_size(340.0, 176.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(false)
+        .background_color(tauri::window::Color(7, 7, 13, 255))
+        .always_on_top(false)
+        .skip_taskbar(true)
+        .visible(false)
+        .build()
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 fn widget_show(app: tauri::AppHandle) -> Result<(), String> {
-    // The control widget is a single persistent window. Reuse it after hide;
-    // never create a second WebView with the same label. Using the real /widget
-    // route also avoids booting the full Aleya shell behind a transparent window.
+    show_widget(&app)
+}
+
+#[tauri::command]
+fn widget_ready(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
+    let mut widget = state.widget.lock();
+    let w = app
+        .get_webview_window("widget")
+        .ok_or("Widget window is not open")?;
+    widget.ready = true;
+    w.unminimize().map_err(|e| e.to_string())?;
+    w.show().map_err(|e| e.to_string())?;
+    w.set_focus().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn widget_state(app: tauri::AppHandle, state: WidgetPlaybackState) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("widget") {
-        w.unminimize().map_err(|e| e.to_string())?;
-        w.show().map_err(|e| e.to_string())?;
-        w.set_focus().map_err(|e| e.to_string())?;
-        return Ok(());
+        w.emit("solstice://widget-state", state)
+            .map_err(|e| e.to_string())?;
     }
-
-    // Load the dedicated /widget route. Do not use query-string widget mode: the
-    // secondary Tauri WebView can otherwise fall back to an unpainted root page
-    // on first creation, leaving a blank white rectangle.
-    let w = WebviewWindowBuilder::new(&app, "widget", WebviewUrl::App("/?widget=1".into()))
-        .title("Aleya Control")
-        .inner_size(360.0, 190.0)
-        .min_inner_size(330.0, 170.0)
-        .resizable(false)
-        .decorations(false)
-        .transparent(false)
-        .always_on_top(false)
-        .skip_taskbar(true)
-        // Make the window visible as part of creation. This removes the
-        // create-hidden -> paint -> show race that produced the empty/black
-        // widget on the first click.
-        .visible(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    w.set_focus().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 fn widget_set_topmost(app: tauri::AppHandle, pinned: bool) -> Result<(), String> {
-    let w = app.get_webview_window("widget").ok_or("Widget window is not open")?;
+    let w = app
+        .get_webview_window("widget")
+        .ok_or("Widget window is not open")?;
     w.set_always_on_top(pinned).map_err(|e| e.to_string())
 }
 
@@ -463,9 +516,27 @@ fn widget_hide(app: tauri::AppHandle) -> Result<(), String> {
 
 fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let show = MenuItem::with_id(app, "show", "Show Aleya", true, None::<&str>)?;
-    let show_widget = MenuItem::with_id(app, "show_widget", "Show Control Widget", true, None::<&str>)?;
-    let desktop_on = MenuItem::with_id(app, "desktop_on", "Set desktop wallpaper", true, None::<&str>)?;
-    let desktop_off = MenuItem::with_id(app, "desktop_off", "Stop desktop wallpaper", true, None::<&str>)?;
+    let show_widget_item = MenuItem::with_id(
+        app,
+        "show_widget",
+        "Show Control Widget",
+        true,
+        None::<&str>,
+    )?;
+    let desktop_on = MenuItem::with_id(
+        app,
+        "desktop_on",
+        "Set desktop wallpaper",
+        true,
+        None::<&str>,
+    )?;
+    let desktop_off = MenuItem::with_id(
+        app,
+        "desktop_off",
+        "Stop desktop wallpaper",
+        true,
+        None::<&str>,
+    )?;
     let pause = MenuItem::with_id(app, "toggle", "Play / Pause", true, None::<&str>)?;
     let next = MenuItem::with_id(app, "next", "Next", true, None::<&str>)?;
     let prev = MenuItem::with_id(app, "prev", "Previous", true, None::<&str>)?;
@@ -477,7 +548,7 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
         app,
         &[
             &show,
-            &show_widget,
+            &show_widget_item,
             &sep,
             &desktop_on,
             &desktop_off,
@@ -499,7 +570,7 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "show" => show_main(app),
             "show_widget" => {
-                let _ = widget_show(app.clone());
+                let _ = show_widget(app);
             }
             "desktop_on" => {
                 let _ = attach_desktop(app);
@@ -573,6 +644,7 @@ pub fn run() {
                 data_dir,
                 settings: Mutex::new(cfg),
                 last_frames: Mutex::new(HashMap::new()),
+                widget: Mutex::new(WidgetWindowState::default()),
             });
             setup_tray(app.handle())?;
 
@@ -625,8 +697,9 @@ pub fn run() {
             library_kv_get,
             library_kv_set,
             emit_cmd,
-            wallpaper_ready,
             widget_show,
+            widget_ready,
+            widget_state,
             widget_set_topmost,
             widget_hide
         ])

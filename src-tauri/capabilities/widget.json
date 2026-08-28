@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "widget",
+  "description": "Minimal IPC access for the Aleya control widget",
+  "windows": ["widget"],
+  "permissions": ["core:default", "core:event:default"]
+}

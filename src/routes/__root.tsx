@@ -11,28 +11,38 @@ export const Route = createRootRoute({
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: APP_NAME },
-      { name: "description", content: "Windows wallpaper studio for photos, GIFs, and live video." },
+      {
+        name: "description",
+        content:
+          "Windows wallpaper studio for photos, GIFs, and live video. One at a time, on a day schedule.",
+      },
       { name: "theme-color", content: "#0c0c0e" },
     ],
-    links: [{ rel: "icon", type: "image/png", href: "/favicon.png" }, { rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "icon", type: "image/svg+xml", href: "/favicon.png" },
+      { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/__grok/manifest.webmanifest" },
+      { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,400;0,500;0,600;1,400&display=swap",
+      },
+    ],
   }),
-  component: Root,
-});
-
-function Root() {
-  // The control widget is a second, independent Tauri WebView. Do not boot the
-  // main app's preview bridge or auth/database providers inside it: those are
-  // designed for the primary window and can prevent a secondary WebView from
-  // painting, which was the cause of the blank/white widget window.
-  const isWidget = typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("widget") === "1";
-  return (
+  component: () => (
     <html lang="en" className="antialiased" suppressHydrationWarning>
-      <head><HeadContent /></head>
+      <head>
+        <HeadContent />
+      </head>
       <body>
-        {isWidget ? <Outlet /> : <><PreviewHostBridge /><AuthProvider><Outlet /></AuthProvider></>}
+        <PreviewHostBridge />
+        <AuthProvider>
+          <Outlet />
+        </AuthProvider>
         <Scripts />
       </body>
     </html>
-  );
-}
+  ),
+});

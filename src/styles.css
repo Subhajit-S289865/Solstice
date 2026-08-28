@@ -322,3 +322,18 @@ select {
   object-fit: cover;
   transform: scale(1.04);
 }
+
+/* WebView2 may briefly show its native default before React paints. Keep every
+   Aleya surface dark from the first document frame, including the control window. */
+html, body, #root { background: #0c0c12; }
+
+/* Native Aleya widget: keep the WebView surface dark even before React paints. */
+html,
+body,
+#root {
+  background: var(--color-bg);
+}
+
+.widget-root {
+  background: var(--color-bg);
+}

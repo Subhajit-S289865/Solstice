@@ -64,17 +64,22 @@ mod win {
     use std::sync::atomic::{AtomicIsize, Ordering};
     use std::time::Duration;
     use tauri::WebviewWindow;
-    use windows_sys::Win32::Foundation::{BOOL, GetLastError, HWND, LPARAM, RECT, TRUE};
+    use windows_sys::Win32::Foundation::{GetLastError, BOOL, HWND, LPARAM, RECT, TRUE};
     use windows_sys::Win32::Graphics::Gdi::{
         EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, FindWindowExW, FindWindowW, GetParent, IsWindow, IsChild, MoveWindow, GetWindowRect,
-        SendMessageTimeoutW, SetParent, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE,
-        SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE,
-        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_CHILD, WS_POPUP, SWP_FRAMECHANGED,
+        EnumWindows, FindWindowExW, FindWindowW, GetParent, GetWindowRect, IsChild, IsWindow,
+        MoveWindow, SendMessageTimeoutW, SetParent, SetWindowPos, ShowWindow, GWL_EXSTYLE,
+        GWL_STYLE, SMTO_NORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        SW_SHOWNOACTIVATE, WS_CHILD, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+        WS_POPUP,
     };
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm64ec")))]
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "arm64ec"
+    )))]
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowLongW, SetWindowLongW};
 
     const SPAWN_WORKERW: u32 = 0x052C;
@@ -97,11 +102,19 @@ mod win {
     /// windows-sys 0.59 links GetWindowLongPtrW only on 64-bit Windows targets.
     #[inline]
     unsafe fn get_window_long_ptr(hwnd: HWND, index: i32) -> isize {
-        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm64ec"))]
+        #[cfg(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "arm64ec"
+        ))]
         {
             windows_sys::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(hwnd, index)
         }
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm64ec")))]
+        #[cfg(not(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "arm64ec"
+        )))]
         {
             GetWindowLongW(hwnd, index) as isize
         }
@@ -109,11 +122,19 @@ mod win {
 
     #[inline]
     unsafe fn set_window_long_ptr(hwnd: HWND, index: i32, value: isize) -> isize {
-        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm64ec"))]
+        #[cfg(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "arm64ec"
+        ))]
         {
             windows_sys::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(hwnd, index, value)
         }
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm64ec")))]
+        #[cfg(not(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "arm64ec"
+        )))]
         {
             SetWindowLongW(hwnd, index, value as i32) as isize
         }
@@ -136,15 +157,7 @@ mod win {
         }
         let mut result: usize = 0;
         // Two variants: classic (0,0) and Win11 24H2 (0xD, 0/1).
-        SendMessageTimeoutW(
-            progman,
-            SPAWN_WORKERW,
-            0,
-            0,
-            SMTO_NORMAL,
-            1000,
-            &mut result,
-        );
+        SendMessageTimeoutW(progman, SPAWN_WORKERW, 0, 0, SMTO_NORMAL, 1000, &mut result);
         SendMessageTimeoutW(
             progman,
             SPAWN_WORKERW,
@@ -251,7 +264,12 @@ mod win {
         }
         let mut ctx = Ctx { items: Vec::new() };
         unsafe {
-            EnumDisplayMonitors(hdc_null(), ptr::null(), Some(proc), &mut ctx as *mut Ctx as LPARAM);
+            EnumDisplayMonitors(
+                hdc_null(),
+                ptr::null(),
+                Some(proc),
+                &mut ctx as *mut Ctx as LPARAM,
+            );
         }
         if ctx.items.is_empty() {
             let (x, y, w, h) = virtual_screen();
@@ -278,16 +296,30 @@ mod win {
             GWL_EXSTYLE,
             ex | WS_EX_NOACTIVATE as isize | WS_EX_TOOLWINDOW as isize | WS_EX_TRANSPARENT as isize,
         );
-        SetWindowPos(hwnd, hwnd_null(), 0, 0, 0, 0,
-            SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        SetWindowPos(
+            hwnd,
+            hwnd_null(),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED,
+        );
     }
 
     unsafe fn finalize_child_style(hwnd: HWND) {
         let style = get_window_long_ptr(hwnd, GWL_STYLE);
         let child_style = (style | WS_CHILD as isize) & !(WS_POPUP as isize);
         set_window_long_ptr(hwnd, GWL_STYLE, child_style);
-        SetWindowPos(hwnd, hwnd_null(), 0, 0, 0, 0,
-            SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        SetWindowPos(
+            hwnd,
+            hwnd_null(),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED,
+        );
     }
 
     pub fn attach(
@@ -295,8 +327,7 @@ mod win {
         mode: CoverMode,
         monitor: Option<&MonitorInfo>,
     ) -> Result<(), String> {
-        // Keep the surface hidden until the frontend has painted its first frame.
-        let _ = window.hide();
+        let _ = window.show();
         let _ = window.set_ignore_cursor_events(true);
         let hwnd = hwnd_of_retry(window)? as HWND;
         unsafe {
@@ -307,7 +338,10 @@ mod win {
                 worker = find_workerw();
             }
             if worker.is_null() {
-                return Err("Explorer WorkerW was not created. Desktop wallpaper needs Windows Explorer.".into());
+                return Err(
+                    "Explorer WorkerW was not created. Desktop wallpaper needs Windows Explorer."
+                        .into(),
+                );
             }
             eprintln!("[Solstice] Wallpaper HWND={hwnd:p} WorkerW={worker:p}");
             style_as_wallpaper(hwnd);
@@ -344,14 +378,27 @@ mod win {
             if MoveWindow(hwnd, rx, ry, w.max(1), h.max(1), TRUE) == 0 {
                 return Err(format!("MoveWindow failed: {}", GetLastError()));
             }
-            SetWindowPos(hwnd, hwnd_null(), rx, ry, w.max(1), h.max(1),
-                SWP_NOACTIVATE | SWP_NOZORDER);
-            // Revealed later by wallpaper_ready after the frontend paints.
+            SetWindowPos(
+                hwnd,
+                hwnd_null(),
+                rx,
+                ry,
+                w.max(1),
+                h.max(1),
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
+            );
+            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
 
             let mut rect: RECT = zeroed();
             if GetWindowRect(hwnd, &mut rect) != 0 {
-                eprintln!("[Solstice] Wallpaper visible rect=({}, {}) {}x{} parent={:p}",
-                    rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, GetParent(hwnd));
+                eprintln!(
+                    "[Solstice] Wallpaper visible rect=({}, {}) {}x{} parent={:p}",
+                    rect.left,
+                    rect.top,
+                    rect.right - rect.left,
+                    rect.bottom - rect.top,
+                    GetParent(hwnd)
+                );
             } else {
                 eprintln!("[Solstice] GetWindowRect failed: {}", GetLastError());
             }

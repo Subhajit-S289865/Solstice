@@ -29,7 +29,14 @@ export interface MediaPlaybackSettings {
 }
 
 export const DEFAULT_MEDIA_PLAYBACK: MediaPlaybackSettings = {
-  fit: "fill", zoom: 100, positionX: 0, positionY: 0, muted: false, volume: 0.8, loop: true, playbackRate: 1,
+  fit: "fill",
+  zoom: 100,
+  positionX: 0,
+  positionY: 0,
+  muted: false,
+  volume: 0.8,
+  loop: true,
+  playbackRate: 1,
 };
 
 export interface ResolvedClip {
@@ -190,9 +197,7 @@ export function queueFor(
   const q = state.query.trim().toLowerCase();
   if (q) {
     items = items.filter(
-      (w) =>
-        w.title.toLowerCase().includes(q) ||
-        w.collection.toLowerCase().includes(q),
+      (w) => w.title.toLowerCase().includes(q) || w.collection.toLowerCase().includes(q),
     );
   }
   if (items.length === 0) return library(state.imports);
@@ -236,6 +241,8 @@ export const useWallpaperStore = create<WallpaperState>()(
       gpuSaver: false,
       autoAdjust: true,
       mediaSettings: {},
+      setMediaSettings: (id, settings) =>
+        set((s) => ({ mediaSettings: { ...s.mediaSettings, [id]: settings } })),
       slotClips: emptyClipMap(),
       apply: (id) => set({ activeId: id, activeClipId: id, lastChangeAt: Date.now() }),
       applyClip: (clip) =>
@@ -283,7 +290,7 @@ export const useWallpaperStore = create<WallpaperState>()(
       setShuffle: (shuffle) =>
         set({
           shuffle,
-          shuffleSeed: shuffle ? (hashString(String(Date.now())) || 3) : 7,
+          shuffleSeed: shuffle ? hashString(String(Date.now())) || 3 : 7,
         }),
       setFit: (fit) => set({ fit }),
       setMuted: (muted) => set({ muted }),
@@ -295,8 +302,7 @@ export const useWallpaperStore = create<WallpaperState>()(
       setKindFilter: (kindFilter) => set({ kindFilter }),
       setQuery: (query) => set({ query }),
       setPlaying: (playing) => set({ playing, lastChangeAt: Date.now() }),
-      setAutoPlay: (autoPlay) =>
-        set({ autoPlay, playing: autoPlay ? true : get().playing }),
+      setAutoPlay: (autoPlay) => set({ autoPlay, playing: autoPlay ? true : get().playing }),
       kill: () =>
         set({
           killed: true,
@@ -316,8 +322,7 @@ export const useWallpaperStore = create<WallpaperState>()(
       setPauseOnHidden: (pauseOnHidden) => set({ pauseOnHidden }),
       setGpuSaver: (gpuSaver) => set({ gpuSaver }),
       setAutoAdjust: (autoAdjust) => set({ autoAdjust }),
-      addImports: (items) =>
-        set((s) => ({ imports: s.imports.concat(items) })),
+      addImports: (items) => set((s) => ({ imports: s.imports.concat(items) })),
       removeImport: (id) =>
         set((s) => {
           const slotClips: Record<string, SlotClip[]> = {};
@@ -375,7 +380,9 @@ export const useWallpaperStore = create<WallpaperState>()(
           slotClips: {
             ...s.slotClips,
             [slotId]: (s.slotClips[slotId] ?? []).map((c) =>
-              c.clipId === clipId ? { ...c, ...patch, clipId: c.clipId, wallpaperId: c.wallpaperId } : c,
+              c.clipId === clipId
+                ? { ...c, ...patch, clipId: c.clipId, wallpaperId: c.wallpaperId }
+                : c,
             ),
           },
         })),
@@ -440,7 +447,10 @@ export const useWallpaperStore = create<WallpaperState>()(
           slotClips: migrateSlotClips(p.slotClips, legacyIds),
           volume: typeof p.volume === "number" ? p.volume : current.volume,
           autoPlay: typeof p.autoPlay === "boolean" ? p.autoPlay : current.autoPlay,
-          activeClipId: typeof p.activeClipId === "string" ? p.activeClipId : p.activeId ?? current.activeClipId,
+          activeClipId:
+            typeof p.activeClipId === "string"
+              ? p.activeClipId
+              : (p.activeId ?? current.activeClipId),
           killed: false,
         };
       },
