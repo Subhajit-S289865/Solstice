@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WallpaperRouteImport } from './routes/wallpaper'
+import { Route as WidgetRouteImport } from './routes/widget'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +23,40 @@ const WallpaperRoute = WallpaperRouteImport.update({
   path: '/wallpaper',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WidgetRoute = WidgetRouteImport.update({
+  id: '/widget',
+  path: '/widget',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/wallpaper': typeof WallpaperRoute
+  '/widget': typeof WidgetRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/wallpaper': typeof WallpaperRoute
+  '/widget': typeof WidgetRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/wallpaper': typeof WallpaperRoute
+  '/widget': typeof WidgetRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/wallpaper'
+  fullPaths: '/' | '/wallpaper' | '/widget'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/wallpaper'
-  id: '__root__' | '/' | '/wallpaper'
+  to: '/' | '/wallpaper' | '/widget'
+  id: '__root__' | '/' | '/wallpaper' | '/widget'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   WallpaperRoute: typeof WallpaperRoute
+  WidgetRoute: typeof WidgetRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WallpaperRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/widget': {
+      id: '/widget'
+      path: '/widget'
+      fullPath: '/widget'
+      preLoaderRoute: typeof WidgetRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   WallpaperRoute: WallpaperRoute,
+  WidgetRoute: WidgetRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

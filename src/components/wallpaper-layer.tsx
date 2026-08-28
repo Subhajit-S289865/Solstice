@@ -1,22 +1,55 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { canvasDpr, effectiveFps, renderSize } from "@/lib/display";
 import { drawScene } from "@/lib/render-wallpaper";
 import type { DisplaySize, Fit, FpsCap, Quality, Wallpaper } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-function fitClass(fit: Fit) {
-  switch (fit) {
-    case "fill":
-      return "h-full w-full object-cover";
-    case "fit":
-      return "h-full w-full object-contain";
-    case "stretch":
-      return "h-full w-full object-fill";
-    case "center":
-      return "h-full w-full object-none object-center";
-    case "tile":
-      return "hidden";
+type MediaLayout = { left: number; top: number; width: number; height: number };
+
+// Do not rely on object-fit for the actual desktop surface.  WorkerW/WebView2 can
+// report a CSS viewport that differs slightly from the native HWND while it is
+// being reparented.  Calculating the rectangle from the measured surface and the
+// media's real dimensions avoids the few-pixel / few-centimetre crop this caused.
+function layoutMedia(
+  fit: Fit,
+  cw: number,
+  ch: number,
+  mw: number,
+  mh: number,
+  zoom: number,
+  positionX: number,
+  positionY: number,
+): MediaLayout | null {
+  if (!(cw > 0 && ch > 0 && mw > 0 && mh > 0)) return null;
+  const z = Math.max(0.01, zoom / 100);
+  let w: number;
+  let h: number;
+  if (fit === "stretch") {
+    w = cw;
+    h = ch;
+  } else if (fit === "fit") {
+    const scale = Math.min(cw / mw, ch / mh) * z;
+    w = mw * scale;
+    h = mh * scale;
+  } else if (fit === "center") {
+    w = mw * z;
+    h = mh * z;
+  } else {
+    // Fill/cover: max scale. If both sides are 16:9, this is exactly cw x ch.
+    const scale = Math.max(cw / mw, ch / mh) * z;
+    w = mw * scale;
+    h = mh * scale;
   }
+  const overflowX = Math.max(0, w - cw);
+  const overflowY = Math.max(0, h - ch);
+  const px = Math.min(1, Math.max(0, (positionX + 50) / 100));
+  const py = Math.min(1, Math.max(0, (positionY + 50) / 100));
+  return {
+    left: overflowX > 0 ? -overflowX * px : (cw - w) / 2,
+    top: overflowY > 0 ? -overflowY * py : (ch - h) / 2,
+    width: w,
+    height: h,
+  };
 }
 
 export interface LayerEngine {
@@ -30,11 +63,17 @@ export interface LayerEngine {
   gpuSaver: boolean;
   autoAdjust: boolean;
   loopVideo: boolean;
+  zoom: number;
+  positionX: number;
+  positionY: number;
+  playbackRate: number;
   clipId?: string;
   inSec?: number;
   outSec?: number | null;
   onMediaEnded?: () => void;
   onDuration?: (seconds: number) => void;
+  onTimeUpdate?: (seconds: number, duration: number) => void;
+  seekTo?: number | null;
   nextSrc?: string;
   nextIsVideo?: boolean;
   hideChrome?: boolean;
@@ -228,7 +267,10 @@ export function WallpaperLayer({
   engine: LayerEngine;
   className?: string;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [surface, setSurface] = useState({ width: 0, height: 0 });
+  const [mediaSize, setMediaSize] = useState({ width: 0, height: 0 });
   const isVideo = Boolean(
     wallpaper.src && (wallpaper.kind === "live" || wallpaper.mime?.startsWith("video/")),
   );
@@ -238,6 +280,46 @@ export function WallpaperLayer({
   const inSec = engine.inSec ?? 0;
   const outSec = engine.outSec ?? null;
   const trimmed = inSec > 0 || outSec != null;
+  const layout = layoutMedia(
+    resolvedFit,
+    surface.width,
+    surface.height,
+    mediaSize.width,
+    mediaSize.height,
+    engine.zoom,
+    engine.positionX,
+    engine.positionY,
+  );
+  const mediaStyle: CSSProperties = layout
+    ? {
+        left: `${layout.left}px`,
+        top: `${layout.top}px`,
+        width: `${layout.width}px`,
+        height: `${layout.height}px`,
+      }
+    : { left: 0, top: 0, width: "100%", height: "100%" };
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const update = () => setSurface({ width: node.clientWidth, height: node.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (layout && surface.width && mediaSize.width) {
+      console.info("[Solstice] media layout", {
+        surface: `${surface.width}x${surface.height}`,
+        media: `${mediaSize.width}x${mediaSize.height}`,
+        fit: resolvedFit,
+        zoom: engine.zoom,
+        rect: `${Math.round(layout.left)},${Math.round(layout.top)} ${Math.round(layout.width)}x${Math.round(layout.height)}`,
+      });
+    }
+  }, [layout?.left, layout?.top, layout?.width, layout?.height, surface.width, surface.height, mediaSize.width, mediaSize.height, resolvedFit, engine.zoom]);
+
   const mediaKey = engine.clipId ?? wallpaper.id;
   const endedRef = useRef(false);
   const engineRef = useRef(engine);
@@ -245,16 +327,50 @@ export function WallpaperLayer({
 
   useEffect(() => {
     endedRef.current = false;
+    setMediaSize({ width: 0, height: 0 });
   }, [mediaKey, inSec, outSec]);
 
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
-    el.muted = engine.muted;
     el.volume = Math.min(1, Math.max(0, engine.volume));
-    if (engine.paused) el.pause();
-    else void el.play().catch(() => undefined);
-  }, [engine.muted, engine.volume, engine.paused, mediaKey]);
+    el.playbackRate = Math.min(2, Math.max(0.25, engine.playbackRate));
+    if (engine.paused) {
+      el.pause();
+      return;
+    }
+    // WebView2 can block a fresh audible autoplay in the wallpaper window.
+    // Start the same element muted first, then restore the requested audio state
+    // once playback has actually begun. That keeps audio working after the user
+    // presses Play/Unmute in Aleya instead of leaving the wallpaper silent.
+    const requestedMuted = engine.muted;
+    const restoreAudio = () => { el.muted = requestedMuted; };
+    if (el.paused) {
+      el.muted = true;
+      void el.play().then(restoreAudio).catch((error) => {
+        console.error("[Solstice] video play() failed", { path: wallpaper.path ?? null, url: wallpaper.src, error: String(error) });
+        window.dispatchEvent(new CustomEvent("solstice://media-error", { detail: `Video could not start: ${String(error)}` }));
+      });
+    } else {
+      restoreAudio();
+    }
+  }, [engine.muted, engine.volume, engine.paused, engine.playbackRate, mediaKey]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    const target = engine.seekTo;
+    if (!el || target == null || !Number.isFinite(target)) return;
+    const applySeek = () => {
+      const duration = Number.isFinite(el.duration) ? el.duration : target;
+      const clamped = Math.max(0, Math.min(target, duration));
+      if (Math.abs(el.currentTime - clamped) > 0.04) {
+        try { el.currentTime = clamped; } catch { /* not seekable yet */ }
+      }
+    };
+    if (el.readyState >= 1) applySeek();
+    else el.addEventListener("loadedmetadata", applySeek, { once: true });
+    return () => el.removeEventListener("loadedmetadata", applySeek);
+  }, [engine.seekTo, mediaKey]);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -282,23 +398,59 @@ export function WallpaperLayer({
       eng.onMediaEnded?.();
     };
 
+    const diagnostic = (event: string) => {
+      const err = el.error;
+      console.info("[Solstice] media", { event, path: wallpaper.path ?? null, url: wallpaper.src, mime: wallpaper.mime ?? null, readyState: el.readyState, errorCode: err?.code ?? null, errorMessage: err?.message ?? null });
+    };
     const onMeta = () => {
+      diagnostic("loadedmetadata");
       const dur = el.duration;
+      if (el.videoWidth > 0 && el.videoHeight > 0) {
+        setMediaSize({ width: el.videoWidth, height: el.videoHeight });
+      }
       if (Number.isFinite(dur) && dur > 0) engineRef.current.onDuration?.(dur);
       seekIn();
     };
     const onTime = () => {
+      const duration = Number.isFinite(el.duration) ? el.duration : 0;
+      engineRef.current.onTimeUpdate?.(el.currentTime, duration);
       if (el.currentTime + 0.04 < inSec) seekIn();
       if (outSec != null && el.currentTime >= outSec - 0.04) finish();
     };
     const onEnded = () => finish();
 
+    const onCanPlay = () => diagnostic("canplay");
+    const onPlaying = () => diagnostic("playing");
+    const onPause = () => diagnostic("pause");
+    const onError = () => {
+      diagnostic("error");
+      const err = el.error;
+      const message = err
+        ? `Video failed to load (code ${err.code}). Check the file codec/path and Solstice diagnostics.`
+        : "Video failed to load.";
+      console.error("[Solstice] media playback failed", {
+        path: wallpaper.path ?? null,
+        url: wallpaper.src,
+        mime: wallpaper.mime ?? null,
+        code: err?.code ?? null,
+        message: err?.message ?? message,
+      });
+      window.dispatchEvent(new CustomEvent("solstice://media-error", { detail: message }));
+    };
     el.addEventListener("loadedmetadata", onMeta);
+    el.addEventListener("canplay", onCanPlay);
+    el.addEventListener("playing", onPlaying);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("error", onError);
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("ended", onEnded);
     if (el.readyState >= 1) onMeta();
     return () => {
       el.removeEventListener("loadedmetadata", onMeta);
+      el.removeEventListener("canplay", onCanPlay);
+      el.removeEventListener("playing", onPlaying);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("error", onError);
       el.removeEventListener("timeupdate", onTime);
       el.removeEventListener("ended", onEnded);
     };
@@ -317,13 +469,14 @@ export function WallpaperLayer({
   }, [mediaKey]);
 
   return (
-    <div className={cn("absolute inset-0 overflow-hidden bg-bg", className)}>
+    <div ref={containerRef} className={cn("absolute inset-0 overflow-hidden bg-bg", className)}>
       {isVideo ? (
         <video
           ref={videoRef}
           key={mediaKey}
           src={wallpaper.src}
-          className={cn("absolute inset-0", fitClass(resolvedFit))}
+          className="absolute block max-w-none object-fill"
+          style={mediaStyle}
           autoPlay={!engine.paused}
           loop={engine.loopVideo && !trimmed}
           muted={engine.muted}
@@ -349,7 +502,8 @@ export function WallpaperLayer({
           alt=""
           sizes="100vw"
           decoding="async"
-          className={cn("absolute inset-0", fitClass(resolvedFit))}
+          className="absolute block max-w-none object-fill"
+          style={mediaStyle}
           draggable={false}
         />
       ) : null}

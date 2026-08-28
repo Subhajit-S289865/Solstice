@@ -64,15 +64,15 @@ mod win {
     use std::sync::atomic::{AtomicIsize, Ordering};
     use std::time::Duration;
     use tauri::WebviewWindow;
-    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM, RECT, TRUE};
+    use windows_sys::Win32::Foundation::{BOOL, GetLastError, HWND, LPARAM, RECT, TRUE};
     use windows_sys::Win32::Graphics::Gdi::{
         EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, FindWindowExW, FindWindowW, GetParent, IsWindow, MoveWindow,
-        SendMessageTimeoutW, SetParent, SetWindowPos, ShowWindow, GWL_EXSTYLE, HWND_BOTTOM,
+        EnumWindows, FindWindowExW, FindWindowW, GetParent, IsWindow, IsChild, MoveWindow, GetWindowRect,
+        SendMessageTimeoutW, SetParent, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE,
         SMTO_NORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE,
-        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_CHILD, WS_POPUP, SWP_FRAMECHANGED,
     };
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm64ec")))]
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowLongW, SetWindowLongW};
@@ -269,12 +269,25 @@ mod win {
     }
 
     unsafe fn style_as_wallpaper(hwnd: HWND) {
+        // Keep this as a top-level popup until SetParent succeeds. Changing to
+        // WS_CHILD before parenting can make WebView2 stop painting on some
+        // Windows builds.
         let ex = get_window_long_ptr(hwnd, GWL_EXSTYLE);
         set_window_long_ptr(
             hwnd,
             GWL_EXSTYLE,
             ex | WS_EX_NOACTIVATE as isize | WS_EX_TOOLWINDOW as isize | WS_EX_TRANSPARENT as isize,
         );
+        SetWindowPos(hwnd, hwnd_null(), 0, 0, 0, 0,
+            SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+
+    unsafe fn finalize_child_style(hwnd: HWND) {
+        let style = get_window_long_ptr(hwnd, GWL_STYLE);
+        let child_style = (style | WS_CHILD as isize) & !(WS_POPUP as isize);
+        set_window_long_ptr(hwnd, GWL_STYLE, child_style);
+        SetWindowPos(hwnd, hwnd_null(), 0, 0, 0, 0,
+            SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
 
     pub fn attach(
@@ -282,7 +295,8 @@ mod win {
         mode: CoverMode,
         monitor: Option<&MonitorInfo>,
     ) -> Result<(), String> {
-        let _ = window.show();
+        // Keep the surface hidden until the frontend has painted its first frame.
+        let _ = window.hide();
         let _ = window.set_ignore_cursor_events(true);
         let hwnd = hwnd_of_retry(window)? as HWND;
         unsafe {
@@ -295,28 +309,52 @@ mod win {
             if worker.is_null() {
                 return Err("Explorer WorkerW was not created. Desktop wallpaper needs Windows Explorer.".into());
             }
+            eprintln!("[Solstice] Wallpaper HWND={hwnd:p} WorkerW={worker:p}");
             style_as_wallpaper(hwnd);
-            let parent = SetParent(hwnd, worker);
-            if parent.is_null() && GetParent(hwnd) != worker {
-                return Err("SetParent to WorkerW failed".into());
+
+            // Clear last-error before SetParent: NULL is also a valid previous
+            // parent, so the parent after the call is the authoritative result.
+            windows_sys::Win32::Foundation::SetLastError(0);
+            let previous = SetParent(hwnd, worker);
+            let last_error = GetLastError();
+
+            // SetParent returning NULL is ambiguous only when GetLastError is non-zero.
+            // Do not use GetParent alone while the window is still WS_POPUP: on WebView2
+            // builds Windows can report NULL for a newly reparented popup until WS_CHILD is
+            // applied. Convert the style first, then verify both APIs.
+            if previous.is_null() && last_error != 0 {
+                return Err(format!("SetParent to WorkerW failed: error={last_error}"));
+            }
+            finalize_child_style(hwnd);
+            let current = GetParent(hwnd);
+            let is_child = IsChild(worker, hwnd);
+            eprintln!("[Solstice] SetParent previous={previous:p} current={current:p} worker={worker:p} isChild={is_child} error={last_error}");
+            if current != worker && is_child == 0 {
+                return Err(format!("SetParent verification failed: parent={current:p}, worker={worker:p}, isChild={is_child}, error={last_error}"));
             }
             let (x, y, w, h) = match (mode, monitor) {
                 (CoverMode::Independent, Some(m)) => (m.x, m.y, m.width as i32, m.height as i32),
                 _ => virtual_screen(),
             };
-            // WorkerW is typically at the virtual origin; position relative to it.
+            // A child window is positioned in parent coordinates. WorkerW covers
+            // the virtual desktop, so convert the monitor rectangle to that origin.
             let (vx, vy, _, _) = virtual_screen();
-            MoveWindow(hwnd, x - vx, y - vy, w.max(1), h.max(1), TRUE);
-            SetWindowPos(
-                hwnd,
-                HWND_BOTTOM,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
-            );
-            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            let rx = x - vx;
+            let ry = y - vy;
+            if MoveWindow(hwnd, rx, ry, w.max(1), h.max(1), TRUE) == 0 {
+                return Err(format!("MoveWindow failed: {}", GetLastError()));
+            }
+            SetWindowPos(hwnd, hwnd_null(), rx, ry, w.max(1), h.max(1),
+                SWP_NOACTIVATE | SWP_NOZORDER);
+            // Revealed later by wallpaper_ready after the frontend paints.
+
+            let mut rect: RECT = zeroed();
+            if GetWindowRect(hwnd, &mut rect) != 0 {
+                eprintln!("[Solstice] Wallpaper visible rect=({}, {}) {}x{} parent={:p}",
+                    rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, GetParent(hwnd));
+            } else {
+                eprintln!("[Solstice] GetWindowRect failed: {}", GetLastError());
+            }
             LAST_ATTACH.store(worker as isize, Ordering::SeqCst);
         }
         let _ = window.set_skip_taskbar(true);
@@ -356,14 +394,6 @@ mod win {
 
     pub fn clear_intent() {
         LAST_ATTACH.store(0, Ordering::SeqCst);
-    }
-
-    pub fn parent_alive() -> bool {
-        let w = LAST_ATTACH.load(Ordering::SeqCst);
-        if w == 0 {
-            return false;
-        }
-        unsafe { IsWindow(w as HWND) != 0 }
     }
 
     pub fn heartbeat_needed() -> bool {

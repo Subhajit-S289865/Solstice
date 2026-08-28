@@ -1,8 +1,8 @@
 [package]
 name = "solstice"
 version = "1.0.0"
-description = "Solstice — Windows desktop wallpaper studio"
-authors = ["Solstice"]
+description = "Aleya — Windows desktop wallpaper studio"
+authors = ["Aleya"]
 edition = "2021"
 rust-version = "1.77"
 

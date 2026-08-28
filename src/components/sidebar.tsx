@@ -1,10 +1,11 @@
-import { CATALOG, countByCollection, countByKind } from "@/lib/catalog";
+import { countByKind } from "@/lib/catalog";
 import { COLLECTIONS, KIND_LABEL, PERIOD_RANGE, PERIODS, TIME_SLOTS, type Kind, type Period } from "@/lib/types";
 import { useWallpaperStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Clapperboard, Folder, Image, Images, Layers } from "lucide-react";
+import { AleyaMark } from "./aleya-mark";
 import type { ReactNode } from "react";
 
 const KINDS: Array<"all" | Kind> = ["all", "photo", "gif", "live"];
@@ -32,12 +33,13 @@ export function Sidebar({
   const applyClip = useWallpaperStore((s) => s.applyClip);
   const byKind = countByKind(imports);
   const folderCount = imports.filter((w) => w.collection === "Folders" || Boolean(w.path)).length;
-  const total = CATALOG.length + imports.length;
+  const total = imports.length;
 
   return (
     <aside className="hidden h-full min-h-0 w-60 shrink-0 flex-col border-r border-border lg:flex">
       <ScrollArea className="flex-1">
         <nav className="flex flex-col gap-0.5 p-3" aria-label="Library">
+          <div className="mb-2 flex items-center gap-2 px-2 pt-1"><AleyaMark className="scale-75 origin-left" /><div><p className="aleya-wordmark text-xs text-fg">Aleya</p><p className="text-[10px] text-subtle">Your world, in motion</p></div></div>
           <p className="px-2 pb-1 text-2xs font-medium uppercase tracking-wider text-subtle">Library</p>
           <NavBtn
             active={collection === "all" && kindFilter === "all"}

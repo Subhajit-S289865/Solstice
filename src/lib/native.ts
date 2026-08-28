@@ -80,8 +80,13 @@ export const DEFAULT_DESKTOP: DesktopSettings = {
 };
 
 export async function convertPath(path: string): Promise<string> {
+  if (!path || !path.trim()) throw new Error("Empty media path");
   const { convertFileSrc } = await import("@tauri-apps/api/core");
-  return convertFileSrc(path);
+  // Never pass C:\... directly to HTML media elements. Tauri's asset protocol
+  // creates a WebView2-safe URL and keeps spaces/non-ASCII characters encoded.
+  const url = convertFileSrc(path);
+  console.info("[Solstice] media URL resolved", { path, url });
+  return url;
 }
 
 export function mediaToWallpaper(row: NativeMedia, src: string): Wallpaper {
@@ -148,6 +153,9 @@ export const native = {
   async addFolder(path: string): Promise<NativeFolder> {
     return invoke("library_add_folder", { path });
   },
+  async addFiles(paths: string[]): Promise<number> {
+    return invoke("library_add_files", { paths });
+  },
   async removeFolder(id: number): Promise<void> {
     await invoke("library_remove_folder", { id });
   },
@@ -167,6 +175,18 @@ export const native = {
       offset: opts?.offset ?? 0,
       limit: opts?.limit ?? 200,
     });
+  },
+  async pickFiles(): Promise<string[]> {
+    if (!isTauri()) return [];
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const res = await open({
+      directory: false,
+      multiple: true,
+      title: "Import photos, GIFs, or videos",
+      filters: [{ name: "Media", extensions: ["jpg", "jpeg", "png", "webp", "gif", "mp4", "webm", "mov"] }],
+    });
+    if (!res) return [];
+    return Array.isArray(res) ? res : [res];
   },
   async pickFolder(): Promise<string | null> {
     if (!isTauri()) return null;
@@ -198,6 +218,26 @@ export const native = {
     if (!isTauri()) return;
     const { emit } = await import("@tauri-apps/api/event");
     await emit(event, payload);
+  },
+  async showWidget(): Promise<void> {
+    if (!isTauri()) return;
+    await invoke("widget_show");
+  },
+  async wallpaperReady(monitor?: string | null): Promise<void> {
+    if (!isTauri()) return;
+    await invoke("wallpaper_ready", { monitor: monitor ?? null });
+  },
+  async widgetTopmost(pinned: boolean): Promise<void> {
+    if (!isTauri()) return;
+    await invoke("widget_set_topmost", { pinned });
+  },
+  async hideWidget(): Promise<void> {
+    if (!isTauri()) return;
+    await invoke("widget_hide");
+  },
+  async command(cmd: string): Promise<void> {
+    if (!isTauri()) return;
+    await invoke("emit_cmd", { cmd });
   },
   async showMain(): Promise<void> {
     if (!isTauri()) return;

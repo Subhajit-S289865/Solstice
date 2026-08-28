@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use wallpaper::CoverMode;
 
@@ -109,6 +109,7 @@ fn attach_desktop_later(app: &tauri::AppHandle) {
 
 
 fn attach_desktop(app: &tauri::AppHandle) -> Result<(), String> {
+    eprintln!("[Solstice] Wallpaper requested");
     let state = app.state::<AppState>();
     let settings = state.settings.lock().clone();
     let mode = parse_mode(&settings.monitor_mode);
@@ -127,13 +128,18 @@ fn attach_desktop(app: &tauri::AppHandle) -> Result<(), String> {
     };
 
     match mode {
-        CoverMode::Independent => {
+        // "Same" means the same media on every enabled monitor, not one
+        // enormous WebView stretched across the virtual desktop. Each monitor
+        // therefore gets its own correctly-sized wallpaper surface. "Independent"
+        // uses the same window layout but the frontend sends monitor-specific frames.
+        CoverMode::Independent | CoverMode::Same => {
             let extra: Vec<String> = app
                 .webview_windows()
                 .into_keys()
                 .filter(|l| l == "wallpaper")
                 .collect();
             close_labels(app, extra);
+
             let enabled_ids: Vec<String> = enabled.iter().map(|m| m.id.clone()).collect();
             let stale: Vec<String> = app
                 .webview_windows()
@@ -145,13 +151,15 @@ fn attach_desktop(app: &tauri::AppHandle) -> Result<(), String> {
                 })
                 .collect();
             close_labels(app, stale);
+
             for m in &enabled {
                 let label = format!("wallpaper-{}", m.id);
                 let win = build_wallpaper_window(app, &label, Some(&m.id))?;
+                eprintln!("[Solstice] Attaching {:?} wallpaper {} at {}x{}", mode, m.id, m.width, m.height);
                 wallpaper::attach(&win, CoverMode::Independent, Some(m))?;
             }
         }
-        _ => {
+        CoverMode::Span => {
             let extras: Vec<String> = app
                 .webview_windows()
                 .into_keys()
@@ -159,7 +167,44 @@ fn attach_desktop(app: &tauri::AppHandle) -> Result<(), String> {
                 .collect();
             close_labels(app, extras);
             let win = build_wallpaper_window(app, "wallpaper", None)?;
-            wallpaper::attach(&win, mode, enabled.first())?;
+
+            // Span only the monitors the user actually enabled. The previous
+            // implementation always used the entire Windows virtual desktop,
+            // even when only one monitor was selected. That made a 2560x1440
+            // screen render inside a 4480x1440 surface and caused 16:9 video
+            // to be vertically cropped by object-fit: cover.
+            let span_monitor = if enabled.is_empty() {
+                None
+            } else {
+                let left = enabled.iter().map(|m| m.x).min().unwrap_or(0);
+                let top = enabled.iter().map(|m| m.y).min().unwrap_or(0);
+                let right = enabled
+                    .iter()
+                    .map(|m| m.x.saturating_add(m.width as i32))
+                    .max()
+                    .unwrap_or(left + 1);
+                let bottom = enabled
+                    .iter()
+                    .map(|m| m.y.saturating_add(m.height as i32))
+                    .max()
+                    .unwrap_or(top + 1);
+                Some(wallpaper::MonitorInfo {
+                    id: "span".into(),
+                    name: "Enabled displays".into(),
+                    x: left,
+                    y: top,
+                    width: right.saturating_sub(left).max(1) as u32,
+                    height: bottom.saturating_sub(top).max(1) as u32,
+                    primary: enabled.iter().any(|m| m.primary),
+                })
+            };
+            if let Some(ref m) = span_monitor {
+                eprintln!("[Solstice] Attaching span wallpaper to enabled bounds {}x{} at ({}, {})", m.width, m.height, m.x, m.y);
+                wallpaper::attach(&win, CoverMode::Independent, Some(m))?;
+            } else {
+                eprintln!("[Solstice] Attaching span wallpaper window to virtual desktop");
+                wallpaper::attach(&win, CoverMode::Span, None)?;
+            }
         }
     }
     let _ = app.emit("solstice://desktop", serde_json::json!({ "attached": true }));
@@ -305,6 +350,11 @@ fn library_add_folder(state: tauri::State<AppState>, path: String) -> Result<lib
 }
 
 #[tauri::command]
+fn library_add_files(state: tauri::State<AppState>, paths: Vec<String>) -> Result<u32, String> {
+    state.library.add_files(&paths)
+}
+
+#[tauri::command]
 fn library_remove_folder(state: tauri::State<AppState>, id: i64) -> Result<(), String> {
     state.library.remove_folder(id)
 }
@@ -350,10 +400,73 @@ fn emit_cmd(app: tauri::AppHandle, cmd: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn wallpaper_ready(app: tauri::AppHandle, monitor: Option<String>) -> Result<(), String> {
+    let label = match monitor.as_deref() {
+        Some(id) => format!("wallpaper-{id}"),
+        None => "wallpaper".to_string(),
+    };
+    if let Some(w) = app.get_webview_window(&label) {
+        w.show().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn widget_show(app: tauri::AppHandle) -> Result<(), String> {
+    // The control widget is a single persistent window. Reuse it after hide;
+    // never create a second WebView with the same label. Using the real /widget
+    // route also avoids booting the full Aleya shell behind a transparent window.
+    if let Some(w) = app.get_webview_window("widget") {
+        w.unminimize().map_err(|e| e.to_string())?;
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    // Load the dedicated /widget route. Do not use query-string widget mode: the
+    // secondary Tauri WebView can otherwise fall back to an unpainted root page
+    // on first creation, leaving a blank white rectangle.
+    let w = WebviewWindowBuilder::new(&app, "widget", WebviewUrl::App("/?widget=1".into()))
+        .title("Aleya Control")
+        .inner_size(360.0, 190.0)
+        .min_inner_size(330.0, 170.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(false)
+        .always_on_top(false)
+        .skip_taskbar(true)
+        // Make the window visible as part of creation. This removes the
+        // create-hidden -> paint -> show race that produced the empty/black
+        // widget on the first click.
+        .visible(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    w.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn widget_set_topmost(app: tauri::AppHandle, pinned: bool) -> Result<(), String> {
+    let w = app.get_webview_window("widget").ok_or("Widget window is not open")?;
+    w.set_always_on_top(pinned).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn widget_hide(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("widget") {
+        w.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let show = MenuItem::with_id(app, "show", "Show Solstice", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Aleya", true, None::<&str>)?;
+    let show_widget = MenuItem::with_id(app, "show_widget", "Show Control Widget", true, None::<&str>)?;
     let desktop_on = MenuItem::with_id(app, "desktop_on", "Set desktop wallpaper", true, None::<&str>)?;
     let desktop_off = MenuItem::with_id(app, "desktop_off", "Stop desktop wallpaper", true, None::<&str>)?;
+    let pause = MenuItem::with_id(app, "toggle", "Play / Pause", true, None::<&str>)?;
     let next = MenuItem::with_id(app, "next", "Next", true, None::<&str>)?;
     let prev = MenuItem::with_id(app, "prev", "Previous", true, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop", "Stop", true, None::<&str>)?;
@@ -364,11 +477,13 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
         app,
         &[
             &show,
+            &show_widget,
             &sep,
             &desktop_on,
             &desktop_off,
             &sep,
             &prev,
+            &pause,
             &next,
             &stop,
             &restart,
@@ -383,12 +498,18 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "show" => show_main(app),
+            "show_widget" => {
+                let _ = widget_show(app.clone());
+            }
             "desktop_on" => {
                 let _ = attach_desktop(app);
             }
             "desktop_off" => {
                 let _ = detach_desktop(app);
                 let _ = app.emit("solstice://cmd", serde_json::json!({ "cmd": "kill" }));
+            }
+            "toggle" => {
+                let _ = app.emit("solstice://cmd", serde_json::json!({ "cmd": "toggle" }));
             }
             "next" => {
                 let _ = app.emit("solstice://cmd", serde_json::json!({ "cmd": "next" }));
@@ -429,6 +550,13 @@ pub fn run() {
             Some(vec!["--autostart"]),
         ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // Closing Aleya keeps the wallpaper engine alive and hides the UI to tray.
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -489,16 +617,21 @@ pub fn run() {
             desktop_last_frame,
             library_folders,
             library_add_folder,
+            library_add_files,
             library_remove_folder,
             library_scan,
             library_list,
             library_get,
             library_kv_get,
             library_kv_set,
-            emit_cmd
+            emit_cmd,
+            wallpaper_ready,
+            widget_show,
+            widget_set_topmost,
+            widget_hide
         ])
         .on_window_event(|window, event| {
-            if window.label() == "main" {
+            if window.label() == "main" || window.label() == "widget" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();

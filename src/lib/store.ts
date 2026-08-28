@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { CATALOG, CATALOG_BY_ID } from "./catalog";
+
 import { hashString, shuffleInPlace } from "./rng";
 import { emptyClipMap, migrateSlotClips, periodForSlot } from "./slots";
 import { cloneClip, makeClip, syntheticClip } from "./trim";
@@ -16,6 +16,21 @@ import type {
   Wallpaper,
 } from "./types";
 import { periodFromDate } from "./time";
+
+export interface MediaPlaybackSettings {
+  fit: Fit;
+  zoom: number;
+  positionX: number;
+  positionY: number;
+  muted: boolean;
+  volume: number;
+  loop: boolean;
+  playbackRate: number;
+}
+
+export const DEFAULT_MEDIA_PLAYBACK: MediaPlaybackSettings = {
+  fit: "fill", zoom: 100, positionX: 0, positionY: 0, muted: false, volume: 0.8, loop: true, playbackRate: 1,
+};
 
 export interface ResolvedClip {
   clip: SlotClip;
@@ -49,6 +64,8 @@ export interface WallpaperState {
   pauseOnHidden: boolean;
   gpuSaver: boolean;
   autoAdjust: boolean;
+  mediaSettings: Record<string, MediaPlaybackSettings>;
+  setMediaSettings: (id: string, settings: MediaPlaybackSettings) => void;
   slotClips: Record<string, SlotClip[]>;
   apply: (id: string) => void;
   applyClip: (clip: SlotClip) => void;
@@ -88,11 +105,11 @@ export interface WallpaperState {
 }
 
 function library(imports: Wallpaper[]): Wallpaper[] {
-  return imports.length ? CATALOG.concat(imports) : CATALOG;
+  return imports;
 }
 
 export function wallpaperById(id: string, imports: Wallpaper[]): Wallpaper | undefined {
-  return CATALOG_BY_ID.get(id) ?? imports.find((w) => w.id === id);
+  return imports.find((w) => w.id === id);
 }
 
 function resolveClips(clips: SlotClip[], imports: Wallpaper[]): ResolvedClip[] {
@@ -196,8 +213,8 @@ export const useWallpaperStore = create<WallpaperState>()(
       intervalMs: 30_000,
       shuffle: false,
       fit: "fill",
-      muted: true,
-      volume: 0.6,
+      muted: false,
+      volume: 0.8,
       audioReactive: false,
       clockFollowsReal: true,
       virtualMinutes: 8 * 60,
@@ -218,6 +235,7 @@ export const useWallpaperStore = create<WallpaperState>()(
       pauseOnHidden: true,
       gpuSaver: false,
       autoAdjust: true,
+      mediaSettings: {},
       slotClips: emptyClipMap(),
       apply: (id) => set({ activeId: id, activeClipId: id, lastChangeAt: Date.now() }),
       applyClip: (clip) =>
@@ -297,7 +315,7 @@ export const useWallpaperStore = create<WallpaperState>()(
       setFpsCap: (fpsCap) => set({ fpsCap }),
       setPauseOnHidden: (pauseOnHidden) => set({ pauseOnHidden }),
       setGpuSaver: (gpuSaver) => set({ gpuSaver }),
-      setAutoAdjust: (autoAdjust) => set({ autoAdjust, fit: autoAdjust ? "fill" : get().fit }),
+      setAutoAdjust: (autoAdjust) => set({ autoAdjust }),
       addImports: (items) =>
         set((s) => ({ imports: s.imports.concat(items) })),
       removeImport: (id) =>

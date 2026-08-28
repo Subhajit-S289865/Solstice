@@ -2,7 +2,7 @@ export type Kind = "photo" | "gif" | "live";
 export type Period = "morning" | "afternoon" | "evening" | "night";
 export type Fit = "fill" | "fit" | "stretch" | "center" | "tile";
 export type Mode = "hold" | "rotate" | "daycycle" | "slots";
-export type DisplaySize = "auto" | "24" | "27" | "32";
+export type DisplaySize = "auto" | "24" | "27" | "32" | "4k";
 export type Quality = "720" | "1080" | "1440" | "2160";
 export type FpsCap = 15 | 24 | 30 | 60;
 
@@ -101,10 +101,11 @@ export const TIME_SLOTS: TimeSlot[] = [
 ];
 
 export const DISPLAY_SIZES: { id: DisplaySize; label: string; hint: string }[] = [
-  { id: "auto", label: "Auto", hint: "Match this screen" },
-  { id: "24", label: "24 inch", hint: "1920 × 1080" },
-  { id: "27", label: "27 inch", hint: "2560 × 1440" },
-  { id: "32", label: "32 inch", hint: "3840 × 2160" },
+  { id: "auto", label: "Auto", hint: "Use detected monitor resolution" },
+  { id: "24", label: "24 inch", hint: "1920 × 1080 · 16:9" },
+  { id: "27", label: "27 inch", hint: "2560 × 1440 · 16:9" },
+  { id: "32", label: "32 inch", hint: "2560 × 1440 · 16:9" },
+  { id: "4k", label: "4K", hint: "3840 × 2160 · 16:9" },
 ];
 
 export const QUALITIES: { id: Quality; label: string; w: number; h: number }[] = [

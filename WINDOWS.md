@@ -1,11 +1,11 @@
-# Solstice for Windows
+# Aleya for Windows
 
 This is a **Windows 10/11 desktop app**. WorkerW wallpaper, WebView2, global hotkeys, tray, autostart, and the NSIS installer only exist on Windows.
 
 Your machine is the success environment:
 
 ```bat
-cd C:\Users\SUBHAJIT\Music\Solstice
+cd C:\Users\SUBHAJIT\Music\Aleya
 npm install
 npm run tauri:dev
 ```
@@ -16,9 +16,9 @@ That is `npm run tauri dev` through `scripts/with-app-env.mjs`. Do **not** use W
 
 ## What was checked vs what only your PC can prove
 
-This copy of Solstice was **not** compiled with MSVC, **not** launched in WebView2, and **not** attached to WorkerW. Do not treat anything below as “it ran on Windows.”
+This copy of Aleya was **not** compiled with MSVC, **not** launched in WebView2, and **not** attached to WorkerW. Do not treat anything below as “it ran on Windows.”
 
-### Statically checked (source vs the crates Solstice actually uses)
+### Statically checked (source vs the crates Aleya actually uses)
 
 | Item | Result |
 | --- | --- |
@@ -28,16 +28,16 @@ This copy of Solstice was **not** compiled with MSVC, **not** launched in WebVie
 | `library.rs` rusqlite `stmt` lifetime (`query_map` collected, then `drop(stmt)`) | **Passed** `cargo check` with rusqlite 0.32 bundled. |
 | `attach_desktop_later`: clone `AppHandle`, then borrow original for `run_on_main_thread` | **Passed** rustc borrow check. |
 | `node scripts/with-app-env.mjs vite --version` | Resolves to `node.exe` + `vite.js`, not `spawn("vite")`. |
-| Vite does not watch `src-tauri\target` (the EBUSY `sqlite3.o` path) | Ignore tests include `C:\Users\SUBHAJIT\Music\Solstice\src-tauri\target\...\sqlite3.o`. `src\lib\native.ts` is still watched. |
+| Vite does not watch `src-tauri\target` (the EBUSY `sqlite3.o` path) | Ignore tests include `C:\Users\SUBHAJIT\Music\Aleya\src-tauri\target\...\sqlite3.o`. `src\lib\native.ts` is still watched. |
 
 ### You must prove on your Windows PC
 
 - `npm install` && `npm run tauri:dev` with **Rust MSVC** + **Desktop C++** + **WebView2**
-- Solstice studio window
+- Aleya studio window
 - Engine → **Set as desktop wallpaper** (real Progman `0x052C` → WorkerW → `SetParent`)
 - Global hotkeys Ctrl+Shift+K / R / arrows / S while another app is focused
 - Kill Explorer.exe and wait ~3s for reattach
-- `npm run tauri:build` → NSIS `Solstice_1.0.0_x64-setup.exe`
+- `npm run tauri:build` → NSIS `Aleya_1.0.0_x64-setup.exe`
 
 If `cargo` still prints `HWND == 0` or `GetWindowLongPtrW` not found, this folder was not replaced. Confirm `src-tauri\src\wallpaper.rs` contains `fn hwnd_null()` and `fn get_window_long_ptr`.
 
@@ -57,7 +57,7 @@ Restart the terminal after installing Rust / C++ tools.
 If you unzip a new copy over an old one, delete the compile cache first:
 
 ```bat
-cd C:\Users\SUBHAJIT\Music\Solstice
+cd C:\Users\SUBHAJIT\Music\Aleya
 rmdir /s /q src-tauri\target
 ```
 
@@ -78,9 +78,9 @@ Windows never has to `spawn("vite")` (`node_modules\.bin\vite` is `vite.cmd`; No
 
 You should see:
 
-1. `Solstice frontend already running on 127.0.0.1:8080` **or** Vite compiling (`VITE v8… ready`)
+1. `Aleya frontend already running on 127.0.0.1:8080` **or** Vite compiling (`VITE v8… ready`)
 2. Cargo compiling `solstice` (first run: several minutes; rusqlite builds bundled SQLite with MSVC)
-3. A **Solstice** window (library, time slots, Engine, Desktop)
+3. A **Aleya** window (library, time slots, Engine, Desktop)
 
 Then: Engine → **Set as desktop wallpaper**. Fill screen, trim, playlists, and kill/restart stay in the studio.
 
@@ -115,10 +115,10 @@ npm run tauri:build
 Expected:
 
 ```
-src-tauri\target\release\bundle\nsis\Solstice_1.0.0_x64-setup.exe
+src-tauri\target\release\bundle\nsis\Aleya_1.0.0_x64-setup.exe
 ```
 
-Rename to `Solstice-Setup.exe` if you want. Start Menu folder: **Solstice**. Closing the studio hides to the tray; **Quit** from the tray exits.
+Rename to `Aleya-Setup.exe` if you want. Start Menu folder: **Aleya**. Closing the studio hides to the tray; **Quit** from the tray exits.
 
 First production build can take 10–20 minutes (LTO + bundled SQLite).
 

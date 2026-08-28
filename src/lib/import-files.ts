@@ -57,7 +57,13 @@ export async function ingestFiles(
       const mime = mimeOf(file);
       const id = crypto.randomUUID();
       recs.push({ id, name: file.name, mime, blob: file, addedAt: Date.now() });
-      walls.push(recordToWallpaper(id, file.name, mime, URL.createObjectURL(file)));
+      const src = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error ?? new Error("Could not read media file"));
+        reader.onload = () => resolve(String(reader.result));
+        reader.readAsDataURL(file);
+      });
+      walls.push(recordToWallpaper(id, file.name, mime, src));
     }
     await putImportBatch(recs);
     added.push(...walls);

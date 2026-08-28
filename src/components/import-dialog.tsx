@@ -34,6 +34,30 @@ export function ImportDialog({
   const [progress, setProgress] = useState(0);
   const [label, setLabel] = useState("");
 
+  async function handleNativeFiles() {
+    setBusy(true);
+    setProgress(0);
+    setLabel("Opening files…");
+    try {
+      const paths = await native.pickFiles();
+      if (!paths.length) return;
+      setLabel(`Indexing ${paths.length.toLocaleString()} files…`);
+      const added = await native.addFiles(paths);
+      const list = await native.list({ limit: 400 });
+      const walls = await Promise.all(list.items.map(async (row) => mediaToWallpaper(row, await convertPath(row.path))));
+      const kept = useWallpaperStore.getState().imports.filter((w) => !w.path);
+      hydrateImports(kept.concat(walls));
+      setCollection("Folders");
+      toast(`Imported ${added.toLocaleString()} local media file${added === 1 ? "" : "s"}.`);
+      onOpenChange(false);
+    } catch (err) {
+      logError("native file import", err);
+      toast("Could not import those files from Windows.");
+    } finally {
+      setBusy(false); setProgress(0); setLabel("");
+    }
+  }
+
   async function handleFiles(list: FileList | File[]) {
     const files = Array.from(list);
     if (!files.length) return;
@@ -102,7 +126,7 @@ export function ImportDialog({
         <DialogHeader>
           <DialogTitle>Import a library</DialogTitle>
           <DialogDescription>
-            Add a folder of photos, or pick GIFs and video. Solstice shows one at a time — by
+            Add a folder of photos, or pick GIFs and video. Aleya shows one at a time — by
             interval, time of day, or your schedule.
           </DialogDescription>
         </DialogHeader>
@@ -148,7 +172,7 @@ export function ImportDialog({
           <button
             type="button"
             disabled={busy}
-            onClick={() => fileRef.current?.click()}
+            onClick={() => { if (isTauri()) void handleNativeFiles(); else fileRef.current?.click(); }}
             className="flex min-h-28 flex-col items-start gap-1.5 rounded-md bg-surface-2 p-4 text-left shadow-[var(--shadow-border)] transition-[box-shadow] duration-[var(--motion-quick)] hover:shadow-[var(--shadow-border-hover)] disabled:opacity-40"
           >
             <ImagePlus className="size-5 text-cta" />

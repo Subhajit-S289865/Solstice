@@ -24,6 +24,9 @@ export function Transport({
   remaining,
   slotRemaining,
   queueLength,
+  videoTime,
+  videoDuration,
+  onSeek,
   onFullscreen,
 }: {
   wallpaper: Wallpaper;
@@ -32,6 +35,9 @@ export function Transport({
   remaining: number;
   slotRemaining: number;
   queueLength: number;
+  videoTime: number;
+  videoDuration: number;
+  onSeek: (seconds: number) => void;
   onFullscreen: () => void;
 }) {
   const mode = useWallpaperStore((s) => s.mode);
@@ -176,6 +182,22 @@ export function Transport({
         </div>
       </div>
 
+      {videoDuration > 0 ? (
+        <div className="mt-2 flex items-center gap-3">
+          <span className="w-11 text-right text-xs tabular-nums text-muted">{formatVideoTime(videoTime)}</span>
+          <Slider
+            min={0}
+            max={videoDuration}
+            step={0.01}
+            value={[Math.min(videoTime, videoDuration)]}
+            onValueChange={(v) => onSeek(v[0] ?? 0)}
+            aria-label="Video timeline"
+            className="flex-1"
+          />
+          <span className="w-11 text-xs tabular-nums text-muted">{formatVideoTime(videoDuration)}</span>
+        </div>
+      ) : null}
+
       <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
         <label className="flex items-center gap-2 text-xs text-muted">
           Use real clock
@@ -205,6 +227,14 @@ export function Transport({
       </div>
     </div>
   );
+}
+
+function formatVideoTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const whole = Math.floor(seconds);
+  const m = Math.floor(whole / 60);
+  const s = whole % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {

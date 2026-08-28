@@ -13,25 +13,28 @@ import { SlotBoard, SlotQueue } from "./slot-board";
 import { CollectionChips, Sidebar } from "./sidebar";
 import { StatusBar } from "./status-bar";
 import { Transport } from "./transport";
+import { AleyaMark } from "./aleya-mark";
+import { AleyaWidget } from "./aleya-widget";
 import type { LayerEngine } from "./wallpaper-layer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { CATALOG } from "@/lib/catalog";
 import { getAllImports } from "@/lib/idb";
 import { recordToWallpaper } from "@/lib/import-files";
 import {
+  DEFAULT_MEDIA_PLAYBACK,
   allWallpapers,
   playbackClips,
   useWallpaperStore,
   wallpaperById,
 } from "@/lib/store";
+import type { Wallpaper } from "@/lib/types";
 import { msUntilSlotEnd, slotFromDate, uniqueWallpaperIds } from "@/lib/slots";
 import { clipPlayMs, clipUsesMediaClock } from "@/lib/trim";
 import { TIME_SLOTS } from "@/lib/types";
 import { composeClock, periodFromDate } from "@/lib/time";
 import { frameFromState } from "@/lib/desktop-sync";
-import { isTauri } from "@/lib/native";
+import { isTauri, native } from "@/lib/native";
 import { useDesktopStore } from "@/lib/desktop-store";
 
 function isTypingTarget(el: EventTarget | null): boolean {
@@ -41,6 +44,17 @@ function isTypingTarget(el: EventTarget | null): boolean {
   if (el.isContentEditable) return true;
   return Boolean(el.closest("input, textarea, select, [contenteditable='true']"));
 }
+
+
+const EMPTY_WALLPAPER: Wallpaper = {
+  id: "__empty__",
+  title: "No media selected",
+  kind: "photo",
+  collection: "Imports",
+  period: "morning",
+  seed: 0,
+  imported: true,
+};
 
 export function AppShell() {
   const [now, setNow] = useState<Date | null>(null);
@@ -52,6 +66,9 @@ export function AppShell() {
   const [tabHidden, setTabHidden] = useState(false);
   const [insertSlotId, setInsertSlotId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"title" | "kind">("title");
+  const [videoTime, setVideoTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [seekTo, setSeekTo] = useState<number | null>(null);
   const prevKey = useRef<string | null>(null);
   const lastEsc = useRef(0);
 
@@ -63,16 +80,16 @@ export function AppShell() {
   const virtualMinutes = useWallpaperStore((s) => s.virtualMinutes);
   const activeId = useWallpaperStore((s) => s.activeId);
   const activeClipId = useWallpaperStore((s) => s.activeClipId);
-  const fit = useWallpaperStore((s) => s.fit);
+  const audioReactive = useWallpaperStore((s) => s.audioReactive);
   const muted = useWallpaperStore((s) => s.muted);
   const volume = useWallpaperStore((s) => s.volume);
-  const audioReactive = useWallpaperStore((s) => s.audioReactive);
   const displaySize = useWallpaperStore((s) => s.displaySize);
   const quality = useWallpaperStore((s) => s.quality);
   const fpsCap = useWallpaperStore((s) => s.fpsCap);
   const pauseOnHidden = useWallpaperStore((s) => s.pauseOnHidden);
   const gpuSaver = useWallpaperStore((s) => s.gpuSaver);
   const autoAdjust = useWallpaperStore((s) => s.autoAdjust);
+  const mediaSettings = useWallpaperStore((s) => s.mediaSettings);
   const imports = useWallpaperStore((s) => s.imports);
   const collection = useWallpaperStore((s) => s.collection);
   const kindFilter = useWallpaperStore((s) => s.kindFilter);
@@ -151,7 +168,7 @@ export function AppShell() {
   );
   const period = periodFromDate(clock);
   const slot = slotFromDate(clock);
-  const enginePaused = killed || (tabHidden && (pauseOnHidden || gpuSaver));
+  const enginePaused = killed || !playing || (tabHidden && (pauseOnHidden || gpuSaver));
   const queue = playbackClips(
     { imports, shuffle, shuffleSeed, mode, slotClips },
     period,
@@ -162,7 +179,8 @@ export function AppShell() {
     queue.find((r) => r.wallpaper.id === activeId) ??
     null;
   const activeClip = activeResolved?.clip;
-  const wallpaper = activeResolved?.wallpaper ?? wallpaperById(activeId, imports) ?? CATALOG[0]!;
+  const wallpaper = activeResolved?.wallpaper ?? wallpaperById(activeId, imports) ?? imports[0] ?? EMPTY_WALLPAPER;
+  const activeMediaSettings = mediaSettings[wallpaper.id] ?? DEFAULT_MEDIA_PLAYBACK;
   const loopVideo = killed || !playing || mode === "hold" || queue.length <= 1;
   const slotRemaining = now ? msUntilSlotEnd(slot, clock) : 0;
   const holdMs = activeClip
@@ -175,6 +193,12 @@ export function AppShell() {
     const i = queue.findIndex((r) => r.clip.clipId === (activeClip?.clipId ?? ""));
     return queue[(i + 1) % queue.length];
   })();
+
+  useEffect(() => {
+    setVideoTime(0);
+    setVideoDuration(0);
+    setSeekTo(null);
+  }, [activeClip?.clipId, wallpaper.id]);
 
   const onMediaEnded = useCallback(() => {
     const s = useWallpaperStore.getState();
@@ -192,10 +216,22 @@ export function AppShell() {
     [activeClip, slot.id, updateClip],
   );
 
+  const onTimeUpdate = useCallback((seconds: number, duration: number) => {
+    setVideoTime(seconds);
+    if (duration > 0) setVideoDuration(duration);
+  }, []);
+
+  const seekVideo = useCallback((seconds: number) => {
+    const max = videoDuration > 0 ? videoDuration : Math.max(seconds, 0);
+    const nextTime = Math.max(0, Math.min(seconds, max));
+    setVideoTime(nextTime);
+    setSeekTo(nextTime);
+  }, [videoDuration]);
+
   const engine: LayerEngine = useMemo(
     () => ({
       muted: killed ? true : muted,
-      volume,
+      volume: volume,
       audioReactive: killed ? false : audioReactive,
       paused: enginePaused,
       fpsCap,
@@ -203,37 +239,45 @@ export function AppShell() {
       displaySize,
       gpuSaver,
       autoAdjust,
-      loopVideo,
+      loopVideo: activeMediaSettings.loop && loopVideo,
+      zoom: activeMediaSettings.zoom,
+      positionX: activeMediaSettings.positionX,
+      positionY: activeMediaSettings.positionY,
+      playbackRate: activeMediaSettings.playbackRate,
       clipId: activeClip?.clipId,
       inSec: activeClip?.inSec ?? 0,
       outSec: activeClip?.outSec ?? null,
       onMediaEnded,
       onDuration,
+      onTimeUpdate,
+      seekTo,
       nextSrc: nextResolved?.wallpaper.src,
       nextIsVideo:
         nextResolved?.wallpaper.kind === "live" ||
         Boolean(nextResolved?.wallpaper.mime?.startsWith("video/")),
     }),
     [
+      activeMediaSettings,
+      audioReactive,
       muted,
       volume,
-      audioReactive,
+      autoAdjust,
       enginePaused,
       fpsCap,
       quality,
       displaySize,
       gpuSaver,
-      autoAdjust,
       loopVideo,
       onMediaEnded,
       onDuration,
+      onTimeUpdate,
+      seekTo,
       killed,
       activeClip?.clipId,
       activeClip?.inSec,
       activeClip?.outSec,
       nextResolved?.wallpaper.src,
-    ],
-  );
+    ],  );
 
   const desktopFrame = useMemo(
     () =>
@@ -248,7 +292,7 @@ export function AppShell() {
           holdMs: null,
         },
         nextResolved?.wallpaper,
-        { ...engine, paused: killed },
+        { ...engine },
       ),
     [wallpaper, activeClip, nextResolved, engine],
   );
@@ -313,7 +357,7 @@ export function AppShell() {
     const q = playbackClips(s, period, slot.id);
     if (q[0]) s.applyClip(q[0].clip);
     if (isTauri()) void applyDesktopWallpaper();
-    toast("Solstice restarted");
+    toast("Aleya restarted");
   }, [revive, period, slot.id]);
 
   const onDesktopApply = useCallback(() => {
@@ -451,6 +495,25 @@ export function AppShell() {
     [addImports, applyClip, assignManyToSlot, insertSlotId, setCollection, setMode],
   );
 
+
+  useEffect(() => {
+    let unlisten = () => undefined;
+    void native.listen<{ cmd: string }>("solstice://cmd", ({ cmd }) => {
+      const state = useWallpaperStore.getState();
+      if (cmd === "toggle") state.setPlaying(!state.playing);
+      else if (cmd === "next") state.next(period, slot.id);
+      else if (cmd === "prev") state.prev(period, slot.id);
+      else if (cmd === "stop" || cmd === "kill") stopApp();
+      else if (cmd === "revive") restartApp();
+      else if (cmd === "mute") state.setMuted(!state.muted);
+      else if (cmd.startsWith("volume:")) {
+        const v = Number(cmd.slice(7));
+        if (Number.isFinite(v)) { state.setVolume(Math.max(0, Math.min(1, v))); if (v > 0) state.setMuted(false); }
+      }
+    }).then((fn) => { unlisten = fn; });
+    return () => unlisten();
+  }, [period, slot.id, stopApp, restartApp]);
+
   return (
     <TooltipProvider delayDuration={250}>
       <div
@@ -466,9 +529,12 @@ export function AppShell() {
         }}
       >
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 sm:h-14 sm:gap-3 sm:px-4">
-          <div className="min-w-0">
-            <p className="font-display text-lg leading-none tracking-tight sm:text-xl">Solstice</p>
-            <p className="hidden text-xs text-subtle sm:block">Wallpaper studio</p>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <AleyaMark className="shrink-0" />
+            <div className="min-w-0">
+              <p className="aleya-wordmark font-display text-base leading-none text-fg sm:text-lg">Aleya</p>
+              <p className="hidden text-[10px] tracking-wide text-subtle sm:block">Light · Motion · Atmosphere</p>
+            </div>
           </div>
           <div className="relative ml-auto hidden min-w-0 max-w-sm flex-1 md:block">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
@@ -527,9 +593,10 @@ export function AppShell() {
             onSelectSlot={(id) => setInsertSlotId((cur) => (cur === id ? null : id))}
           />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="h-36 w-full shrink-0 px-3 pt-1 sm:h-44 sm:px-4 lg:h-[22vh] lg:max-h-[200px] lg:min-h-[132px]">
-              <DesktopPreview wallpaper={wallpaper} fit={fit} engine={engine} clock={clock} />
+            <div className="h-36 w-full shrink-0 px-3 pt-1 sm:h-44 sm:px-4 lg:h-[25vh] lg:max-h-[230px] lg:min-h-[150px]">
+              <DesktopPreview wallpaper={wallpaper} fit={activeMediaSettings.fit} engine={engine} clock={clock} />
             </div>
+            <AleyaWidget />
             <Transport
               wallpaper={wallpaper}
               period={period}
@@ -537,6 +604,9 @@ export function AppShell() {
               remaining={remaining}
               slotRemaining={slotRemaining}
               queueLength={queue.length}
+              videoTime={videoTime}
+              videoDuration={videoDuration}
+              onSeek={seekVideo}
               onFullscreen={() => setFullscreen(true)}
             />
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2">
@@ -545,7 +615,7 @@ export function AppShell() {
                   <span className="tabular-nums text-fg">{visible.length.toLocaleString()}</span> in view
                   <span className="hidden sm:inline">
                     {" "}
-                    · {(CATALOG.length + imports.length).toLocaleString()} in library
+                    · {imports.length.toLocaleString()} in library
                   </span>
                 </p>
                 <div className="flex items-center gap-2">
@@ -610,7 +680,7 @@ export function AppShell() {
         {fullscreen ? (
           <FullscreenStage
             wallpaper={wallpaper}
-            fit={fit}
+            fit={activeMediaSettings.fit}
             engine={engine}
             onExit={() => setFullscreen(false)}
             onKill={stopApp}
@@ -618,7 +688,7 @@ export function AppShell() {
         ) : null}
 
         <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
-        <EngineDialog open={engineOpen} onOpenChange={setEngineOpen} onDesktopApply={onDesktopApply} />
+        <EngineDialog open={engineOpen} onOpenChange={setEngineOpen} onDesktopApply={onDesktopApply} mediaId={wallpaper.id} mediaTitle={wallpaper.title} />
         <ScheduleDialog open={scheduleOpen} onOpenChange={setScheduleOpen} activeSlotId={slot.id} />
         {killed ? <KillScreen onRestart={restartApp} /> : null}
         <DesktopBridge
@@ -627,6 +697,7 @@ export function AppShell() {
           onRevive={restartApp}
           onNext={() => next(period, slot.id)}
           onPrev={() => prev(period, slot.id)}
+          onTogglePlay={() => setPlaying(!useWallpaperStore.getState().playing)}
         />
         <Toaster theme="dark" position="bottom-right" richColors={false} />
       </div>
@@ -651,7 +722,7 @@ function WebSourceBar() {
       <span className="text-subtle">Windows app source</span>
       <a
         className="underline decoration-muted underline-offset-2 hover:text-fg"
-        href="https://github.com/Subhajit-S289865/Solstice"
+        href="https://github.com/Subhajit-S289865/Aleya"
         target="_blank"
         rel="noreferrer"
       >

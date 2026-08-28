@@ -2,29 +2,29 @@
 @import "tw-animate-css";
 
 @theme {
-  --color-bg: #0c0c0e;
-  --color-background: #0c0c0e;
-  --color-surface: #161618;
-  --color-surface-2: #1e1e22;
+  --color-bg: #07070d;
+  --color-background: #07070d;
+  --color-surface: #11111a;
+  --color-surface-2: #181724;
   --color-fg: #f3f3f5;
   --color-foreground: #f3f3f5;
   --color-muted: #a8a8b0;
   --color-muted-foreground: #a8a8b0;
   --color-subtle: #7a7a82;
-  --color-accent: #76b9ed;
+  --color-accent: #8b5cf6;
   --color-accent-fg: #0c0c0e;
   --color-primary: #ececf0;
   --color-primary-foreground: #0c0c0e;
-  --color-cta: #76b9ed;
+  --color-cta: #8b5cf6;
   --color-cta-fg: #0c0c0e;
   --color-secondary: #1e1e22;
   --color-secondary-foreground: #f3f3f5;
   --color-destructive: #c42b1c;
   --color-live: #3d9a6a;
   --color-warn: #c4a35a;
-  --color-border: #ffffff14;
-  --color-input: #1e1e22;
-  --color-ring: #76b9ed;
+  --color-border: #ffffff16;
+  --color-input: #12121c;
+  --color-ring: #a78bfa;
   --color-card: #161618;
   --color-card-foreground: #f3f3f5;
   --color-popover: #161618;
@@ -56,6 +56,14 @@
     border-color: var(--color-border);
   }
 
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -65,7 +73,7 @@
 
   body {
     margin: 0;
-    min-height: 100dvh;
+    min-height: 0;
     background: var(--color-bg);
     color: var(--color-fg);
     font-family: var(--font-sans);
@@ -107,10 +115,11 @@
   --motion-slow: 400ms;
   --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --shadow-border: 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --shadow-border-hover: 0 0 0 1px rgba(255, 255, 255, 0.14);
+  --shadow-border: 0 0 0 1px rgba(167, 139, 250, 0.14), 0 12px 32px rgba(0, 0, 0, 0.22);
+  --shadow-border-hover: 0 0 0 1px rgba(167, 139, 250, 0.32), 0 16px 40px rgba(0, 0, 0, 0.30);
   --shadow-lift: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.28);
   --desktop-taskbar: 44px;
+  --aleya-glow: rgba(124, 58, 237, 0.22);
 }
 
 .font-display {
@@ -129,10 +138,44 @@
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.55'/></svg>");
 }
 
-.scrollbar-thin {
+.scrollbar-thin,
+.modern-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklab, var(--color-fg) 18%, transparent) transparent;
+  scrollbar-color: color-mix(in oklab, var(--color-cta) 58%, #a78bfa 42%) transparent;
+  scrollbar-gutter: stable;
 }
+
+/* Modern native scrollbars for long dialogs and panels. */
+.modern-scrollbar::-webkit-scrollbar,
+.scrollbar-thin::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.modern-scrollbar::-webkit-scrollbar-track,
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.modern-scrollbar::-webkit-scrollbar-thumb,
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  min-height: 42px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(196,181,253,.92), rgba(109,40,217,.78));
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), 0 3px 12px rgba(76,29,149,.24);
+}
+
+.modern-scrollbar::-webkit-scrollbar-thumb:hover,
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(221,214,254,.98), rgba(124,58,237,.98));
+  background-clip: padding-box;
+}
+
+.modern-scrollbar::-webkit-scrollbar-corner,
+.scrollbar-thin::-webkit-scrollbar-corner { background: transparent; }
 
 .panel {
   border-radius: var(--radius-md);
@@ -166,4 +209,116 @@ select {
   [role="button"]:active {
     scale: 1 !important;
   }
+}
+
+
+/* Aleya identity */
+.aleya-mark {
+  width: 2.82rem;
+  height: 2.82rem;
+  display: inline-block;
+  flex: 0 0 auto;
+  background: center / contain no-repeat url("/brand/aleya-mark.png");
+  filter: drop-shadow(0 0 12px rgba(139,92,246,.38));
+}
+
+/* Interactive Aleya mark: it can grow outside its normal layout box without shifting the UI. */
+.aleya-interactive-mark {
+  position: relative;
+  width: 2.82rem;
+  height: 2.82rem;
+  display: inline-block;
+  flex: 0 0 auto;
+  overflow: visible;
+  isolation: isolate;
+  cursor: pointer;
+  transform-origin: center;
+  filter: drop-shadow(0 0 12px rgba(139,92,246,.38));
+  transition: filter 180ms ease;
+}
+
+.aleya-interactive-mark:hover,
+.aleya-interactive-mark:focus-visible {
+  filter: drop-shadow(0 0 22px rgba(167,109,255,.82));
+}
+
+.aleya-interactive-mark__base,
+.aleya-interactive-mark__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  transform-origin: center;
+}
+
+.aleya-interactive-mark__base { opacity: 1; }
+
+.aleya-interactive-mark__video {
+  opacity: 0;
+  mix-blend-mode: screen;
+}
+
+/* Interaction: quickly pop to 200% of the resting size, then settle back. */
+.aleya-interactive-mark:has(.aleya-interactive-mark__video.is-playing) {
+  z-index: 50;
+  animation: aleya-logo-pop 780ms cubic-bezier(.18,.9,.22,1) both;
+}
+
+.aleya-interactive-mark__video.is-playing {
+  opacity: 1;
+  animation: aleya-logo-video-in 150ms ease-out both;
+}
+
+@keyframes aleya-logo-pop {
+  0% { transform: scale(1); }
+  22% { transform: scale(2); }
+  55% { transform: scale(1.72); }
+  78% { transform: scale(1.28); }
+  100% { transform: scale(1); }
+}
+
+@keyframes aleya-logo-video-in {
+  from { opacity: 0; transform: scale(.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aleya-interactive-mark, .aleya-interactive-mark:has(.aleya-interactive-mark__video.is-playing) { animation: none; transition: none; }
+  .aleya-interactive-mark__video {
+    display: none;
+  }
+}
+
+.aleya-wordmark {
+  letter-spacing: .16em;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+
+/* New abstract Aleya mark: keep the detailed source artwork intact and animate the same asset. */
+.aleya-interactive-mark__base.is-playing {
+  animation: aleya-mark-pop 760ms cubic-bezier(.18,.9,.22,1);
+}
+@keyframes aleya-mark-pop {
+  0% { transform: scale(1); filter: brightness(1); }
+  34% { transform: scale(1.85); filter: brightness(1.22) drop-shadow(0 0 20px rgba(181,128,255,.95)); }
+  62% { transform: scale(1.35); filter: brightness(1.1) drop-shadow(0 0 14px rgba(167,109,255,.72)); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+/* Stable round presentation for the official Aleya mark.
+   The interaction wrapper may still expand during the pop animation. */
+.aleya-round-logo {
+  border-radius: 9999px;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 35%, rgba(139,92,246,.18), rgba(7,7,14,.96) 70%);
+  box-shadow: 0 0 0 1px rgba(167,109,255,.24), 0 0 18px rgba(139,92,246,.32);
+}
+.aleya-round-logo .aleya-interactive-mark__base {
+  border-radius: 9999px;
+  object-fit: cover;
+  transform: scale(1.04);
 }

@@ -160,6 +160,35 @@ impl Library {
             .ok_or_else(|| "folder not found after add".into())
     }
 
+    pub fn add_files(&self, paths: &[String]) -> Result<u32, String> {
+        let mut added = 0;
+        for raw in paths {
+            let p = PathBuf::from(raw);
+            if !p.is_file() { continue; }
+            let Some((mime, kind)) = classify(&p) else { continue; };
+            let canon = p.canonicalize().unwrap_or(p.clone());
+            let path = normalize_fs_path(&canon);
+            let parent = canon.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+            let parent_s = normalize_fs_path(&parent);
+            let folder_id = {
+                let conn = self.conn.lock();
+                conn.execute("INSERT OR IGNORE INTO folders(path, recursive) VALUES (?1, 0)", params![parent_s])
+                    .map_err(|e| e.to_string())?;
+                conn.query_row("SELECT id FROM folders WHERE path=?1", params![parent_s], |r| r.get::<_, i64>(0))
+                    .map_err(|e| e.to_string())?
+            };
+            let meta = std::fs::metadata(&canon).map_err(|e| e.to_string())?;
+            let size = meta.len() as i64;
+            let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0);
+            let title = canon.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
+            let id = format!("fs-{:x}", fnv(&path));
+            let conn = self.conn.lock();
+            conn.execute("INSERT INTO media(id,folder_id,path,title,kind,mime,size,mtime) VALUES (?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(path) DO UPDATE SET folder_id=excluded.folder_id,title=excluded.title,kind=excluded.kind,mime=excluded.mime,size=excluded.size,mtime=excluded.mtime", params![id,folder_id,path,title,kind,mime,size,mtime]).map_err(|e| e.to_string())?;
+            added += 1;
+        }
+        Ok(added)
+    }
+
     pub fn remove_folder(&self, id: i64) -> Result<(), String> {
         let conn = self.conn.lock();
         conn.execute("DELETE FROM media WHERE folder_id = ?1", params![id])

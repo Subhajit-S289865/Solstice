@@ -50,6 +50,11 @@ function WallpaperDesktop() {
       gpuSaver: frame?.gpuSaver ?? false,
       autoAdjust: frame?.autoAdjust ?? true,
       loopVideo: frame?.loopVideo ?? true,
+      zoom: frame?.zoom ?? 100,
+      positionX: frame?.positionX ?? 0,
+      positionY: frame?.positionY ?? 0,
+      playbackRate: frame?.playbackRate ?? 1,
+      seekTo: frame?.seekTo ?? null,
       hideChrome: true,
       clipId: frame?.clip.clipId,
       inSec: frame?.clip.inSec,
@@ -64,12 +69,22 @@ function WallpaperDesktop() {
     [frame],
   );
 
+  useEffect(() => {
+    if (!frame || frame.killed || !frame.wallpaper) return;
+    let cancelled = false;
+    const reveal = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!cancelled) void native.wallpaperReady(monitorId);
+    }));
+    const timer = window.setTimeout(reveal, 120);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [frame, monitorId]);
+
   if (!frame || frame.killed || !frame.wallpaper) {
-    return <div className="size-full min-h-dvh bg-bg" />;
+    return <div className="fixed inset-0 bg-bg" />;
   }
 
   return (
-    <div className="relative size-full min-h-dvh overflow-hidden bg-bg">
+    <div className="fixed inset-0 overflow-hidden bg-bg">
       <WallpaperLayer wallpaper={frame.wallpaper} fit={frame.fit} engine={engine} />
     </div>
   );

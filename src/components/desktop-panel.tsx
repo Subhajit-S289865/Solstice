@@ -78,7 +78,7 @@ export function DesktopPanel({ onApply }: { onApply: () => void }) {
       <SettingsPanel title="Windows desktop" icon={<Monitor className="size-3.5" />}>
         <p className="text-xs text-subtle">
           {desktop
-            ? "Places Solstice behind the desktop icons — not a fullscreen window. Closing this window hides the studio in the tray."
+            ? "Places Aleya behind the desktop icons — not a fullscreen window. Closing this window hides the studio in the tray."
             : "This preview fills the screen. The Windows app sets wallpaper behind the desktop icons."}
         </p>
 
@@ -92,7 +92,7 @@ export function DesktopPanel({ onApply }: { onApply: () => void }) {
           {attached ? "Stop desktop wallpaper" : "Set as desktop wallpaper"}
         </Button>
 
-        <SettingsRow label="Start with Windows" hint="Open Solstice when you sign in.">
+        <SettingsRow label="Start with Windows" hint="Open Aleya when you sign in.">
           <Switch
             checked={settings.startWithWindows}
             onCheckedChange={(v) => {
@@ -102,7 +102,7 @@ export function DesktopPanel({ onApply }: { onApply: () => void }) {
             disabled={!desktop}
           />
         </SettingsRow>
-        <SettingsRow label="Start wallpaper on launch" hint="Attach behind icons when Solstice opens.">
+        <SettingsRow label="Start wallpaper on launch" hint="Attach behind icons when Aleya opens.">
           <Switch
             checked={settings.startWallpaperOnLaunch}
             onCheckedChange={(v) => patchSettings({ startWallpaperOnLaunch: v })}

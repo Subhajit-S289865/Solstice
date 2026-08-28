@@ -228,6 +228,9 @@ export async function applyDesktopWallpaper(): Promise<boolean> {
     return false;
   }
   try {
+    const selected = useWallpaperStore.getState().activeId;
+    const media = useWallpaperStore.getState().imports.find((w) => w.id === selected);
+    console.info("[Solstice] Wallpaper requested", { selectedMediaId: selected, selectedMediaPath: media?.path ?? null, generatedMediaUrl: media?.src ?? null });
     await native.attach();
     useDesktopStore.getState().setAttached(true);
     toast("Desktop wallpaper is on — behind the icons.");

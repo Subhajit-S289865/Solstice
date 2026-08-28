@@ -21,6 +21,11 @@ export interface DesktopFrame {
   gpuSaver: boolean;
   autoAdjust: boolean;
   loopVideo: boolean;
+  zoom: number;
+  positionX: number;
+  positionY: number;
+  playbackRate: number;
+  seekTo?: number | null;
   /** When set, only the wallpaper window for that monitor applies this frame. */
   monitorId?: string;
 }
@@ -42,6 +47,11 @@ export function frameFromState(
     | "gpuSaver"
     | "autoAdjust"
     | "loopVideo"
+    | "zoom"
+    | "positionX"
+    | "positionY"
+    | "playbackRate"
+    | "seekTo"
   >,
 ): DesktopFrame {
   return {
@@ -60,6 +70,11 @@ export function frameFromState(
     gpuSaver: engine.gpuSaver,
     autoAdjust: engine.autoAdjust,
     loopVideo: engine.loopVideo,
+    zoom: engine.zoom,
+    positionX: engine.positionX,
+    positionY: engine.positionY,
+    playbackRate: engine.playbackRate,
+    seekTo: engine.seekTo ?? null,
   };
 }
 
