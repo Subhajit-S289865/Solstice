@@ -1,0 +1,64 @@
+import { useEffect, useState } from "react";
+import { Pin, PinOff, Pause, Play, SkipBack, SkipForward, Square, Volume2, VolumeX, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { AleyaMark } from "@/components/aleya-mark";
+import { native } from "@/lib/native";
+
+export function ControlWidget() {
+  const [pinned, setPinned] = useState(false);
+  const [playing, setPlaying] = useState(true);
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(80);
+  const command = (cmd: string) => void native.command(cmd);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let alive = true;
+
+    void (async () => {
+      try {
+        // Listen before requesting state so the reply cannot be missed.
+        unlisten = await native.listen<{ cmd: string }>("solstice://cmd", ({ cmd }) => {
+          if (!cmd?.startsWith("state:") || !alive) return;
+          const [, playingValue, mutedValue, volumeValue] = cmd.split(":");
+          setPlaying(playingValue === "1");
+          setMuted(mutedValue === "1");
+          const parsed = Number(volumeValue);
+          if (Number.isFinite(parsed)) setVolume(Math.round(parsed * 100));
+        });
+        if (!alive) { unlisten(); return; }
+
+        // The main window answers with state:...; this is one-way and cannot
+        // feed back into another sync request.
+        await native.command("sync_widget");
+        if (!alive) return;
+
+        // Native widget visibility is owned by widget_show. Do not wait for
+        // requestAnimationFrame while the WebView may still be hidden.
+      } catch {
+        // Keep the controls usable even if the optional state sync fails.
+      }
+    })();
+
+    return () => { alive = false; unlisten?.(); };
+  }, []);
+  const togglePin = async () => { const next = !pinned; await native.widgetTopmost(next); setPinned(next); };
+  return <main className="widget-root h-screen w-screen overflow-hidden bg-[#07070d] p-1.5 text-white">
+    <section className="widget-card h-full rounded-2xl border border-violet-400/35 bg-[#11111d]/96 px-2.5 py-2 shadow-2xl backdrop-blur-xl">
+      <header className="flex items-center gap-2">
+        <div className="widget-logo grid size-9 place-items-center rounded-full border border-violet-300/25 bg-black/30 shadow-[0_0_20px_rgba(142,82,255,.3)]"><AleyaMark className="size-8 rounded-full"/></div>
+        <div className="min-w-0 flex-1"><p className="text-[11px] font-extrabold tracking-[.22em]">ALEYA</p><p className="truncate text-[10px] text-muted">Wallpaper Control</p></div>
+        <Button variant="ghost" size="icon" className={pinned ? "size-8 text-violet-300" : "size-8"} onClick={() => void togglePin()} aria-label="Always on top">{pinned ? <Pin className="size-3.5"/> : <PinOff className="size-3.5"/>}</Button>
+        <Button variant="ghost" size="icon" className="size-8" onClick={() => void native.hideWidget()} aria-label="Hide widget"><X className="size-4"/></Button>
+      </header>
+      <div className="mt-1 flex items-center justify-center gap-2">
+        <Button variant="ghost" size="icon" className="size-8" onClick={() => command("prev")}><SkipBack className="size-4"/></Button>
+        <Button variant="cta" size="icon" className="size-10 rounded-full" onClick={() => { setPlaying(!playing); command("toggle"); }}>{playing ? <Pause className="size-4"/> : <Play className="size-4"/>}</Button>
+        <Button variant="ghost" size="icon" className="size-8" onClick={() => command("next")}><SkipForward className="size-4"/></Button>
+      </div>
+      <div className="mt-1 flex items-center gap-1.5"><Button variant="ghost" size="icon" className="size-7" onClick={() => { setMuted(!muted); command("mute"); }}>{muted ? <VolumeX className="size-3.5"/> : <Volume2 className="size-3.5"/>}</Button><Slider min={0} max={100} value={[volume]} onValueChange={(v) => { const x=v[0]??0; setVolume(x); command(`volume:${x/100}`); }} /></div>
+      <footer className="mt-1 flex gap-1.5"><Button variant="outline" className="h-8 flex-1 text-xs" onClick={() => command("stop")}><Square className="size-3"/> Stop</Button><Button className="h-8 flex-1 border-red-500/40 bg-red-500/15 text-xs text-red-100 hover:bg-red-500/25" onClick={() => command("kill")}>Kill</Button></footer>
+    </section>
+  </main>;
+}
